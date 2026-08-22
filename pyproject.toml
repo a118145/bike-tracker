@@ -1,0 +1,101 @@
+[project]
+name = "bike-tracker"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "apscheduler>=3.11.3",
+    "fitdecode>=0.11.0",
+    "numpy>=2.5.2",
+    "plotly>=6.9.0",
+    "reflex[db]>=0.9.8",
+    "structlog>=26.1.0",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=2.3.1",
+    "pytest>=9.1.1",
+    "ruff>=0.16.4",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+# extend-exclude, never exclude. Plain `exclude` REPLACES ruff's built-in
+# default list (`.venv`, `.git`, `__pycache__`, `node_modules`, ...), so
+# `ruff format .` would walk into site-packages and reformat every installed
+# dependency — silently, and with exit code 0.
+extend-exclude = [".web", "alembic"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = [
+    "E501",   # line length is handled by the formatter
+    "A002",   # `open` shadows a builtin — it is Radix's prop name
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = ["F401"]  # re-exports
+# RUF012 flags `items: list[Item] = []` on state classes. Reflex deep-copies
+# field defaults per state instance, so the shared-mutable-default hazard the
+# rule targets does not exist here, and plain literals are the idiomatic
+# Reflex spelling.
+"bike_tracker/states/*.py" = ["RUF012"]
+"bike_tracker/navigation/state.py" = ["RUF012"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["bike_tracker", "tests"]
+exclude = "(^\\.web/|^alembic/)"
+strict = true
+# Reflex's Var system rewrites attribute access at class level, so state
+# classes are full of expressions mypy cannot follow. These are the minimum
+# relaxations that keep the rest of the codebase genuinely strict.
+disallow_any_generics = false
+warn_return_any = false
+
+[[tool.mypy.overrides]]
+module = ["reflex.*", "reflex_base.*", "sqlmodel.*"]
+follow_untyped_imports = true
+
+[[tool.mypy.overrides]]
+# plotly and fitdecode ship no py.typed marker. Unlike reflex and sqlmodel they
+# are not worth following untyped: plotly's graph_objects builds its namespace
+# through a lazy __getattr__, so following it turns every `go.Figure()` into an
+# "does not explicitly export" error without catching anything real. Treat them
+# as Any at the boundary instead — the figures they produce are handed straight
+# to rx.plotly and are never inspected by our own code.
+module = ["plotly.*", "fitdecode.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Components and pages read state vars at class level, where `State.items` is
+# a Var even though it is annotated `list[Item]`. mypy sees the annotation and
+# reports every Var operation (`.to_string()`, `.contains()`, event handlers
+# called as `Handler(arg)`) as an error. These codes are switched off here
+# rather than globally, so name errors, bad imports and unreachable code are
+# still caught in these modules — and the pure-Python layers (utils, models,
+# navigation, states) stay fully strict.
+module = ["bike_tracker.components.*", "bike_tracker.pages.*"]
+disable_error_code = [
+    "attr-defined",
+    "union-attr",
+    "arg-type",
+    "operator",
+    "untyped-decorator",
+]
+
+[[tool.mypy.overrides]]
+# Event handlers return event specs, lists of them, or None depending on the
+# branch — annotating that union adds noise without catching anything.
+module = ["bike_tracker.states.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# A Reflex app is run from the project root, not installed as a package, so
+# the app module is only importable if the root is on sys.path.
+pythonpath = ["."]

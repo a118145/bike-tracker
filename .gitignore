@@ -1,0 +1,36 @@
+.states
+.web
+*.py[cod]
+*.db
+assets/external/
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# VS Code
+*.code-workspace
+# Tooling caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Reflex
+reflex.lock
+
+# FIT drop folder — ride files are never persisted, only imported
+data/
+*.fit
+
+# docs and claude plan files
+docs/
+*.png
+.claude/plans
+
+*.zip
