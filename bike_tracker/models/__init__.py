@@ -26,7 +26,7 @@ from .ride import (
     RideNote,
     RideStream,
 )
-from .route import Route
+from .route import Route, RouteForm
 
 __all__ = [
     "EVAL_BASELINE",
@@ -49,4 +49,5 @@ __all__ = [
     "RideNote",
     "RideStream",
     "Route",
+    "RouteForm",
 ]

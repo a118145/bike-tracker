@@ -82,6 +82,20 @@ class MetricFields(SQLModel):
     # not (brief §2).
     left_balance_pct: float | None = Field(default=None)
 
+    # --- mean-maximal power curve ------------------------------------------
+    # The best average sustained over each window, in watts. None where the
+    # window is longer than the ride or lap — a partial window has no answer,
+    # and the card shows an em dash rather than a number derived from less
+    # time than it claims.
+    best_power_5s_w: int | None = Field(default=None)
+    best_power_15s_w: int | None = Field(default=None)
+    best_power_30s_w: int | None = Field(default=None)
+    best_power_60s_w: int | None = Field(default=None)
+    best_power_300s_w: int | None = Field(default=None)
+    best_power_600s_w: int | None = Field(default=None)
+    best_power_1200s_w: int | None = Field(default=None)
+    best_power_3600s_w: int | None = Field(default=None)
+
     # --- training load -----------------------------------------------------
     power_available: bool = Field(default=False)
     load_source: str = Field(default=LOAD_SOURCE_HR)

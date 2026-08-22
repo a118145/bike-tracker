@@ -17,9 +17,11 @@ The order below is deliberate and each step depends on the one before it:
 """
 
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
+from sqlalchemy import func
 from sqlmodel import Session, col, select
 
 from .. import metrics
@@ -126,6 +128,7 @@ def import_ride(
         ride.preview_points = metrics.project_svg_points(
             metrics.simplify_polyline(track, PREVIEW_SIMPLIFY_EPSILON_M)
         )
+        ride.map_points = simplified_track(track)
         assign_route(ride, track, session)
 
     if bike_id is not None:
@@ -252,6 +255,52 @@ def _latest_eval_value(session: Session, eval_type: str, before: datetime) -> in
 # ---------------------------------------------------------------------------
 
 
+# Coordinate precision for stored geometry. Five decimals is ~1.1 m, well
+# under the 15 m the polyline is simplified to, and it nearly halves the JSON.
+COORD_DECIMALS = 5
+
+
+def simplified_track(track: list[metrics.Point]) -> list[list[float]]:
+    """A ride's track, reduced to what a map actually needs.
+
+    Douglas-Peucker at :data:`ROUTE_SIMPLIFY_EPSILON_M` keeps the drawn line
+    within 15 m of the truth — far tighter than the 60 m tolerance
+    ``route_match_score`` uses, so the deviations the route heat map exists to
+    show survive the simplification.
+    """
+    return [
+        [round(lat, COORD_DECIMALS), round(lon, COORD_DECIMALS)]
+        for lat, lon in metrics.simplify_polyline(track, ROUTE_SIMPLIFY_EPSILON_M)
+    ]
+
+
+def ensure_map_points(session: Session, rides: Sequence[Ride]) -> int:
+    """Backfill :attr:`Ride.map_points` for rides imported before it existed.
+
+    Rebuilds the polyline from the stored streams — exact, because the value is
+    pure geometry with nothing copied from the device. Returns how many rides
+    were filled. Rides with no GPS track are left with an empty list and are
+    not retried, since there is nothing to compute.
+    """
+    filled = 0
+    for ride in rides:
+        if ride.map_points:
+            continue
+        stream = session.exec(select(RideStream).where(RideStream.ride_id == ride.id)).first()
+        if stream is None:
+            continue
+        track = metrics.to_points(streams.decode(stream.lat), streams.decode(stream.lon))
+        if not track:
+            continue
+        ride.map_points = simplified_track(track)
+        session.add(ride)
+        filled += 1
+    if filled:
+        session.commit()
+        log.info("ride.map_points.backfilled", rides=filled)
+    return filled
+
+
 def assign_route(ride: Ride, track: list[metrics.Point], session: Session) -> Route:
     """Attach the ride to the best-matching route, or start a new one."""
     simplified = metrics.simplify_polyline(track, ROUTE_SIMPLIFY_EPSILON_M)
@@ -296,18 +345,86 @@ def assign_route(ride: Ride, track: list[metrics.Point], session: Session) -> Ro
     return route
 
 
-def refresh_route_stats(session: Session, route: Route) -> None:
-    """Recompute a route's averages from the rides currently assigned to it."""
+def refresh_route_stats(session: Session, route: Route) -> Route | None:
+    """Recompute a route's averages, deleting it if nothing rides it any more.
+
+    A route is derived data: it exists because rides matched it, so a route
+    with no rides is not an empty route but a route that should not exist. Left
+    behind it would clutter the routes list and the ride-detail dropdown
+    forever, and selecting it there would write a foreign key to a row nobody
+    can reach.
+
+    The pruning lives here rather than in the caller because this is the one
+    choke point every count change passes through — it is called on *both*
+    sides of a reassignment. A hook in the state would work today only because
+    nothing else moves rides yet.
+
+    **Never call this before the ride's new ``route_id`` is committed.**
+    ``assign_route`` is safe: it commits the ride first, so a route it has just
+    created always has at least one ride and cannot be deleted out from under
+    the caller.
+
+    Returns the route, or ``None`` when it was pruned — so a caller cannot go
+    on holding a row that no longer exists.
+    """
     rides = session.exec(select(Ride).where(Ride.route_id == route.id)).all()
+
+    if not rides:
+        route_id, name = route.id, route.name
+        session.delete(route)
+        session.commit()
+        log.info("route.pruned", route_id=route_id, name=name)
+        return None
+
     route.ride_count = len(rides)
-    if rides:
-        route.avg_distance_m = sum(r.distance_m for r in rides) / len(rides)
-        route.avg_elevation_gain_m = sum(r.elevation_gain_m for r in rides) / len(rides)
-        route.avg_moving_time_s = sum(r.moving_time_s for r in rides) / len(rides)
-    else:
-        route.avg_distance_m = route.avg_elevation_gain_m = route.avg_moving_time_s = 0.0
+    route.avg_distance_m = sum(r.distance_m for r in rides) / len(rides)
+    route.avg_elevation_gain_m = sum(r.elevation_gain_m for r in rides) / len(rides)
+    route.avg_moving_time_s = sum(r.moving_time_s for r in rides) / len(rides)
     session.add(route)
     session.commit()
+    return route
+
+
+def create_manual_route(session: Session, ride: Ride, base_name: str) -> Route:
+    """Start a new route from one ride, because the matcher got it wrong.
+
+    The counterpart to reassignment: when the 0.75 threshold has lumped two
+    genuinely different rides together, this splits one off.
+
+    The new route takes **the ride's own polyline** as its geometry. That is
+    not a detail — ``assign_route`` skips routes whose ``points`` are empty, so
+    a route created without geometry could never gain a second ride and would
+    be a permanent dead end.
+
+    Placeholder names are numbered plainly ("New route 2"), unlike the
+    ``X (2)`` that :func:`_unique_route_name` produces for auto-created
+    routes: these are placeholders awaiting a name, not disambiguated ones.
+    """
+    route = Route(
+        name=_numbered_name(session, base_name),
+        points=[list(p) for p in ride.map_points],
+    )
+    session.add(route)
+    session.commit()
+    session.refresh(route)
+
+    ride.route_id = route.id
+    session.add(ride)
+    session.commit()
+
+    log.info("route.created_manually", route_id=route.id, ride_id=ride.id)
+    return route
+
+
+def _numbered_name(session: Session, base: str) -> str:
+    """``base``, ``base 2``, ``base 3`` — the first that is free."""
+    taken = {r.name for r in session.exec(select(Route)).all()}
+    if base not in taken:
+        return base
+    suffix = 2
+    while f"{base} {suffix}" in taken:
+        suffix += 1
+    return f"{base} {suffix}"
 
 
 def _unique_route_name(session: Session, seed: str) -> str:
@@ -382,6 +499,35 @@ def _store_streams(parsed: ParsedRide, ride_id: int, session: Session) -> None:
         setattr(row, name, streams.encode(parsed.channels.get(name)))
     session.add(row)
     session.commit()
+
+
+def recalculate_odometer(session: Session, bike_id: int) -> float:
+    """Rebuild a bike's odometer from the rides currently assigned to it.
+
+    The incremental updates in :func:`_add_to_odometer` and
+    ``RideDetailState.set_bike`` are O(1) but they drift: reassigning a ride
+    subtracts with a ``max(0.0, ...)`` clamp, so a sequence of edits can leave
+    the total short. This is the repair, offered from the bike's edit dialog
+    exactly as masterplan §3.1 specifies.
+
+    ``coalesce`` is not decoration: a bike with no rides makes ``SUM`` return
+    NULL, and ``odo_m`` is not nullable.
+    """
+    bike = session.get(Bike, bike_id)
+    if bike is None:
+        return 0.0
+
+    total = session.exec(
+        select(func.coalesce(func.sum(col(Ride.distance_m)), 0.0)).where(
+            col(Ride.bike_id) == bike_id
+        )
+    ).one()
+
+    bike.odo_m = float(total)
+    session.add(bike)
+    session.commit()
+    log.info("bike.odometer.recalculated", bike_id=bike_id, odo_km=round(bike.odo_m / 1000, 1))
+    return bike.odo_m
 
 
 def _add_to_odometer(session: Session, bike_id: int, distance_m: float) -> None:

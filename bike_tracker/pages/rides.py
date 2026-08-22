@@ -7,6 +7,7 @@ detail view.
 
 import reflex as rx
 
+from ..components.cards import card_grid
 from ..components.map_view import route_preview_svg
 from ..navigation import routes
 from ..states.rides_state import RideCard, RidesState
@@ -14,8 +15,9 @@ from ..ui.base import base_page
 
 
 def _figure(value: rx.Var[str], unit: str, label: str) -> rx.Component:
+    """One compact statistic. Labels are terse because the card is 360 px."""
     return rx.vstack(
-        rx.text(label, size="1", color_scheme="gray"),
+        rx.text(label, size="1", color_scheme="gray", white_space="nowrap"),
         rx.hstack(
             rx.text(value, size="3", weight="bold"),
             rx.text(unit, size="1", color_scheme="gray", padding_bottom="0.1em"),
@@ -24,6 +26,7 @@ def _figure(value: rx.Var[str], unit: str, label: str) -> rx.Component:
         ),
         spacing="0",
         align="start",
+        min_width="0",
     )
 
 
@@ -31,33 +34,35 @@ def _ride_card(ride: RideCard) -> rx.Component:
     return rx.link(
         rx.card(
             rx.hstack(
-                route_preview_svg(ride.preview_points),
+                route_preview_svg(ride.preview_points, size="64px"),
                 rx.vstack(
+                    rx.heading(ride.name, size="3", white_space="nowrap", overflow="hidden"),
                     rx.hstack(
-                        rx.heading(ride.name, size="4"),
                         rx.badge(ride.bike_name, variant="soft", color_scheme="gray"),
-                        align="center",
+                        rx.text(ride.date, size="1", color_scheme="gray"),
                         spacing="2",
+                        align="center",
                         wrap="wrap",
                     ),
-                    rx.text(ride.date, size="1", color_scheme="gray"),
                     rx.hstack(
-                        _figure(ride.distance_km, "km", "Distance"),
-                        _figure(ride.elevation_m, "m", "Ascent"),
-                        _figure(ride.duration, "", "Ride time"),
-                        spacing="5",
+                        _figure(ride.distance_km, "km", "Dist"),
+                        _figure(ride.elevation_m, "m", "Asc"),
+                        _figure(ride.duration, "", "Time"),
+                        spacing="4",
                         width="100%",
                         padding_top="0.35em",
                     ),
                     spacing="1",
                     align="start",
                     width="100%",
+                    min_width="0",
                 ),
-                spacing="4",
+                spacing="3",
                 align="center",
                 width="100%",
             ),
             width="100%",
+            height="100%",
             style={"_hover": {"borderColor": rx.color("accent", 8)}},
         ),
         href=ride.detail_href,
@@ -141,11 +146,7 @@ def rides() -> rx.Component:
             ),
             rx.cond(
                 RidesState.has_rides,
-                rx.vstack(
-                    rx.foreach(RidesState.rides, _ride_card),
-                    spacing="3",
-                    width="100%",
-                ),
+                card_grid(rx.foreach(RidesState.rides, _ride_card)),
                 _empty_state(),
             ),
             spacing="4",

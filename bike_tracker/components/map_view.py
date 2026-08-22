@@ -30,6 +30,7 @@ import plotly.graph_objects as go
 import reflex as rx
 
 from ..metrics import PREVIEW_VIEWBOX, Point, bounds_to_center_zoom
+from .hover_cursor import CURSOR_TRACE, CURSOR_TRACK_TRACE, MAP_CLASS
 
 # Token-free MapLibre styles. "open-street-map" needs no account of any kind;
 # the carto styles are the muted variants used when the map should recede
@@ -47,6 +48,13 @@ MAX_HEATMAP_TRACES = 250
 # the two controls read as the same thing seen two ways (docs/image_3.png).
 LAP_MARKER_COLOUR = "#a252cc"
 LAP_MARKER_SIZE = 20
+
+# The dot that tracks the chart cursor.
+CURSOR_COLOUR = "#ef4444"
+
+# Heat-map lines. One shared constant because the route detail map and the
+# dashboard's all-routes map must read as the same kind of thing.
+HEAT_COLOUR = "#2563eb"
 
 
 @dataclass
@@ -97,6 +105,7 @@ def build_map_figure(
     *,
     markers: list[MapMarker] | None = None,
     focus: list[Point] | None = None,
+    cursor_track: tuple[list[float], list[float]] | None = None,
     uirevision: str | None = None,
     style: str = STYLE_LIGHT,
     width_px: int = 900,
@@ -117,6 +126,11 @@ def build_map_figure(
         focus: Frame the viewport on these points instead of on everything
             drawn. That is what lets a selected lap fill the view while the
             rest of the ride stays visible behind it.
+        cursor_track: ``(lat, lon)`` sampled at exactly the chart's plotted
+            indices, so a chart ``pointIndex`` addresses this array directly.
+            Adds a hidden source trace plus the visible cursor dot that
+            ``components/hover_cursor.py`` moves. NaN entries are kept: they
+            preserve the index alignment where the GPS had no fix.
         uirevision: **Load-bearing, not cosmetic.** Plotly treats
             ``map.center`` and ``map.zoom`` as user-driven state and keeps them
             across a re-plot while this token is unchanged — and ``None``
@@ -155,9 +169,38 @@ def build_map_figure(
                 marker={"size": marker.size, "color": marker.color},
                 text=[marker.label],
                 textposition="middle center",
-                textfont={"color": "white", "size": 11, "family": "Arial Black"},
+                # Font family is deliberately left to Plotly's default. A
+                # MapLibre style serves glyphs as PBF ranges from its own font
+                # stack, so naming a font it does not carry ("Arial Black")
+                # makes the label silently fail to render behind a CORS error.
+                textfont={"color": "white", "size": 11},
                 hovertext=[marker.hover or marker.label],
                 hoverinfo="text" if marker.hover else "skip",
+                showlegend=False,
+            )
+        )
+
+    if cursor_track is not None:
+        cursor_lat, cursor_lon = cursor_track
+        figure.add_trace(
+            go.Scattermap(
+                lat=cursor_lat,
+                lon=cursor_lon,
+                mode="markers",
+                marker={"size": 1, "opacity": 0},
+                name=CURSOR_TRACK_TRACE,
+                hoverinfo="skip",
+                showlegend=False,
+            )
+        )
+        figure.add_trace(
+            go.Scattermap(
+                lat=[],
+                lon=[],
+                mode="markers",
+                marker={"size": 13, "color": CURSOR_COLOUR},
+                name=CURSOR_TRACE,
+                hoverinfo="skip",
                 showlegend=False,
             )
         )
@@ -203,6 +246,9 @@ def route_map(figure: rx.Var[go.Figure], height: str = "460px") -> rx.Component:
                 "doubleClick": "reset",
             },
             use_resize_handler=True,
+            # The handle the hover-cursor JS uses. react-plotly renders
+            # `className` onto the graph div and ignores `id`.
+            class_name=MAP_CLASS,
             width="100%",
             height=height,
         ),

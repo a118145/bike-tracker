@@ -14,9 +14,11 @@ from dataclasses import dataclass
 import numpy as np
 import plotly.graph_objects as go
 import reflex as rx
+from reflex.vars.function import FunctionVar
 
 from .. import metrics
 from ..ingest import streams
+from ..ingest.streams import IntArray
 from ..metrics import FloatArray
 
 # Channels the stat cards can toggle into the chart, mirroring the switch row
@@ -114,7 +116,7 @@ def build_chart_figure(
         _apply_layout(figure, {}, show_legend=False)
         return figure
 
-    indices = streams.downsample_indices(len(data.time_s), MAX_CHART_POINTS)
+    indices = chart_indices(len(data.time_s))
     x_values = [seconds_to_clock(v) for v in data.axis_s[indices]]
 
     if data.altitude_m.size:
@@ -175,6 +177,16 @@ def build_chart_figure(
     return figure
 
 
+def chart_indices(sample_count: int) -> "IntArray":
+    """Which samples the chart actually plots.
+
+    Exported because the map's hover-cursor track must be sampled at exactly
+    these indices — a chart ``pointIndex`` is an index into this selection, so
+    if the two ever drift apart the dot lands somewhere else on the track.
+    """
+    return streams.downsample_indices(sample_count, MAX_CHART_POINTS)
+
+
 def _apply_layout(
     figure: go.Figure,
     overlay_axes: dict[str, dict[str, object]],
@@ -231,11 +243,20 @@ def decode_chart_data(stream: object | None) -> ChartData:
 
 
 def ride_chart(figure: rx.Var[go.Figure], height: str = "280px") -> rx.Component:
-    """The chart itself. Zoom and pan come from the library."""
+    """The chart itself. Zoom and pan come from the library.
+
+    ``on_hover`` and ``on_unhover`` are handed raw ``FunctionVar``s rather than
+    Reflex event handlers, which compiles them to a direct client-side call.
+    A server-side handler here would round-trip on every mouse movement and
+    re-serialize the whole map figure each time — see
+    ``components/hover_cursor.py``.
+    """
     return rx.plotly(
         data=figure,
         config={"displayModeBar": False, "scrollZoom": True, "doubleClick": "reset"},
         use_resize_handler=True,
+        on_hover=rx.Var("window.__btHover").to(FunctionVar),
+        on_unhover=rx.Var("window.__btUnhover").to(FunctionVar),
         width="100%",
         height=height,
     )

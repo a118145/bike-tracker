@@ -12,11 +12,15 @@ the ride-detail bike dropdown already build on.
 
 import pytest
 import reflex as rx
-from sqlmodel import select
+from sqlmodel import Session, create_engine, select
 
+from bike_tracker.ingest.importer import recalculate_odometer
 from bike_tracker.ingest.seed import seed_bikes
-from bike_tracker.models import Bike, BikeForm, BikeSensor
+from bike_tracker.ingest.sources.file import import_file
+from bike_tracker.models import Bike, BikeForm, BikeSensor, Ride
 from bike_tracker.utils.validation import parse_form
+
+from .conftest import EVENING_FIT
 
 
 def _submit(db_url: str, form: dict[str, str]) -> Bike:
@@ -166,3 +170,159 @@ def test_form_validation_rules(name: str, weight: str, valid: bool) -> None:
     parsed, errors = parse_form({"name": name, "weight_kg": weight}, BikeForm)
     assert (parsed is not None) is valid
     assert (errors == {}) is valid
+
+
+# ---------------------------------------------------------------------------
+# Bike management (masterplan §2.6)
+# ---------------------------------------------------------------------------
+
+
+def test_recalculating_the_odometer_matches_the_rides(db_url: str) -> None:
+    """The repair for the drift the incremental updates accumulate."""
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        seed_bikes(session)
+        import_file(EVENING_FIT, session)
+        ride = session.exec(select(Ride)).one()
+        bike = session.get(Bike, ride.bike_id)
+        assert bike is not None and bike.id is not None
+
+        # Simulate the drift a reassignment sequence leaves behind.
+        bike.odo_m = 0.0
+        session.add(bike)
+        session.commit()
+
+        assert recalculate_odometer(session, bike.id) == pytest.approx(ride.distance_m)
+        session.refresh(bike)
+        assert bike.odo_m == pytest.approx(ride.distance_m)
+    engine.dispose()
+
+
+def test_recalculating_a_bike_with_no_rides_gives_zero(db_url: str) -> None:
+    """SUM over no rows is NULL, and `odo_m` is not nullable."""
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        bike = Bike(name="Unused", weight_kg=10.0, odo_m=999.0)
+        session.add(bike)
+        session.commit()
+        session.refresh(bike)
+        assert bike.id is not None
+
+        assert recalculate_odometer(session, bike.id) == 0.0
+        session.refresh(bike)
+        assert bike.odo_m == 0.0
+    engine.dispose()
+
+
+def test_recalculating_a_missing_bike_is_harmless(db_url: str) -> None:
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        assert recalculate_odometer(session, 999) == 0.0
+    engine.dispose()
+
+
+def test_deleting_a_bike_unassigns_its_rides_and_drops_its_sensors(db_url: str) -> None:
+    """The database has no cascade — SQLite is not even enforcing the keys.
+
+    Dropping the sensors is the part that matters: ``resolve_bike`` queries
+    ``BikeSensor`` by ``ant_id`` alone and never joins ``bike``, so an orphaned
+    row would keep voting for a bike that no longer exists.
+    """
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        seed_bikes(session)
+        import_file(EVENING_FIT, session)
+        ride = session.exec(select(Ride)).one()
+        bike_id = ride.bike_id
+        assert bike_id is not None
+
+        # What BikesState.confirm_delete does, in one transaction.
+        for attached in session.exec(select(Ride).where(Ride.bike_id == bike_id)).all():
+            attached.bike_id = None
+            session.add(attached)
+        for sensor in session.exec(select(BikeSensor).where(BikeSensor.bike_id == bike_id)).all():
+            session.delete(sensor)
+        session.delete(session.get(Bike, bike_id))
+        session.commit()
+
+        session.refresh(ride)
+        assert ride.bike_id is None, "the ride itself must survive"
+        assert ride.distance_m > 0, "only the link is lost, not the data"
+        assert session.get(Bike, bike_id) is None
+        assert session.exec(select(BikeSensor).where(BikeSensor.bike_id == bike_id)).all() == []
+    engine.dispose()
+
+
+def test_orphaned_sensors_would_assign_rides_to_a_deleted_bike(db_url: str) -> None:
+    """Why ``confirm_delete`` must remove the sensors, not just the bike.
+
+    ``resolve_bike`` looks ``BikeSensor`` up by ``ant_id`` alone and never
+    joins ``bike``. Deleting a bike while leaving its sensors behind therefore
+    leaves them voting for an id that no longer resolves — this test pins that
+    hazard so the cleanup is not "simplified" away later.
+    """
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        seed_bikes(session)
+        trekking = session.exec(select(Bike).where(Bike.name == "Ideal Trekking")).one()
+        orphan_id = trekking.id
+
+        session.delete(trekking)  # sensors deliberately left behind
+        session.commit()
+
+        result = import_file(EVENING_FIT, session)
+        ride = session.get(Ride, result.ride_id)
+        assert ride is not None
+        assert ride.bike_id == orphan_id
+        assert session.get(Bike, ride.bike_id) is None, "points at a bike that is gone"
+    engine.dispose()
+
+
+def test_deleting_the_sensors_too_keeps_every_assignment_resolvable(db_url: str) -> None:
+    """With the full cleanup, a ride is never left pointing at nothing."""
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        seed_bikes(session)
+        trekking = session.exec(select(Bike).where(Bike.name == "Ideal Trekking")).one()
+
+        for sensor in session.exec(
+            select(BikeSensor).where(BikeSensor.bike_id == trekking.id)
+        ).all():
+            session.delete(sensor)
+        session.delete(trekking)
+        session.commit()
+
+        result = import_file(EVENING_FIT, session)
+        ride = session.get(Ride, result.ride_id)
+        assert ride is not None
+        # The shared chest strap now belongs to exactly one bike, so it becomes
+        # decisive — which is correct inference from what the database knows.
+        # The guarantee that matters is that whatever it resolves to exists.
+        if ride.bike_id is not None:
+            assert session.get(Bike, ride.bike_id) is not None
+    engine.dispose()
+
+
+def test_the_shared_strap_alone_still_does_not_identify_a_bike(db_url: str) -> None:
+    """Deleting one bike must not make the shared strap decisive for the other."""
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        seed_bikes(session)
+        canyon = session.exec(select(Bike).where(Bike.name == "Canyon CF SL 7")).one()
+
+        # Strip the trekking bike's power meter, leaving only the shared strap.
+        trekking = session.exec(select(Bike).where(Bike.name == "Ideal Trekking")).one()
+        for sensor in session.exec(
+            select(BikeSensor)
+            .where(BikeSensor.bike_id == trekking.id)
+            .where(BikeSensor.ant_id == 13522)
+        ).all():
+            session.delete(sensor)
+        session.commit()
+
+        result = import_file(EVENING_FIT, session)
+        ride = session.get(Ride, result.ride_id)
+        assert ride is not None
+        assert ride.bike_id is None
+        assert ride.bike_id != canyon.id
+    engine.dispose()

@@ -29,11 +29,19 @@ from bike_tracker.components.ride_chart import (
     seconds_to_clock,
 )
 from bike_tracker.components.ride_stats import STAT_GROUPS
+from bike_tracker.ingest.fit import parse
+from bike_tracker.ingest.importer import import_ride
 from bike_tracker.ingest.seed import seed_bikes
 from bike_tracker.ingest.sources.file import import_file
-from bike_tracker.models import Bike, Lap, MetricFields, Ride, RideStream
+from bike_tracker.models import Bike, Lap, MetricFields, Ride, RideStream, Route
 from bike_tracker.states.ride_detail_state import _stats
 from bike_tracker.states.rides_state import _to_card
+from bike_tracker.states.route_detail_state import (
+    _route_stats,
+    heat_opacity,
+)
+from bike_tracker.states.route_detail_state import _to_row as _to_ride_row
+from bike_tracker.states.routes_state import _to_card as _to_route_card
 from bike_tracker.utils.formatting import (
     EMPTY,
     format_balance,
@@ -78,6 +86,7 @@ RIDE_ONLY_FIELDS = frozenset(
         "fit_hash",
         "has_trailer",
         "imported_at",
+        "map_points",
         "name",
         "num_laps",
         "preview_points",
@@ -283,8 +292,35 @@ def test_every_lap_produces_a_full_stat_set(imported: ImportedRide) -> None:
     ride, laps, _stream, _bikes = imported
     keys = set(_stats(ride))
     for lap in laps:
-        assert set(_stats(lap)) == keys
-        assert not any(v == EMPTY for v in _stats(lap).values()), "a lap still has gaps"
+        lap_stats = _stats(lap)
+        assert set(lap_stats) == keys
+        # Power-curve windows longer than the lap are legitimately empty —
+        # `test_the_power_curve_card_empties_windows_that_do_not_fit` pins
+        # that. Everything else must be populated.
+        gaps = {
+            key
+            for key, value in lap_stats.items()
+            if value == EMPTY and not key.startswith("best_power_")
+        }
+        assert not gaps, f"lap {lap.index} still has gaps: {sorted(gaps)}"
+
+
+def test_the_power_curve_card_empties_windows_that_do_not_fit(
+    imported: ImportedRide,
+) -> None:
+    """The em dash is the answer when there is no such window in the ride."""
+    ride, laps, _stream, _bikes = imported
+    ride_stats = _stats(ride)
+
+    assert ride_stats["best_power_5s"] == "484"
+    assert ride_stats["best_power_1200s"] == "155"
+    assert ride_stats["best_power_3600s"] == EMPTY, "a 44-minute ride has no hour"
+
+    # Lap 4 runs 450 s, so it has no ten-minute effort either.
+    last = _stats(laps[-1])
+    assert last["best_power_300s"] != EMPTY
+    assert last["best_power_600s"] == EMPTY
+    assert last["best_power_1200s"] == EMPTY
 
 
 # ---------------------------------------------------------------------------
@@ -480,3 +516,136 @@ def test_uirevision_changes_with_the_selection() -> None:
 def test_a_map_without_markers_draws_only_its_lines() -> None:
     built = build_map_figure([MapTrace(points=[(48.0, 11.0), (48.1, 11.1)])])
     assert all(t.mode == "lines" for t in built.figure.data)
+
+
+# ---------------------------------------------------------------------------
+# Routes views (masterplan §2.3)
+# ---------------------------------------------------------------------------
+
+
+def test_a_route_card_carries_everything_the_list_shows(db_url: str) -> None:
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        seed_bikes(session)
+        ride = _get_ride(session, import_file(EVENING_FIT, session).ride_id)
+        route = session.get(Route, ride.route_id)
+        assert route is not None
+
+        card = _to_route_card(route, ride.start_time)
+
+    assert card.name == route.name
+    assert card.distance_km == "19.2"
+    assert card.elevation_m == "87"
+    assert card.duration == "44:24"
+    assert card.ride_count == 1
+    assert card.ride_summary == "Ridden once"
+    assert card.detail_href == f"/routes/{route.id}"
+    # Projected from the stored polyline, not from a decompressed stream.
+    assert card.preview_points
+    assert len(card.preview_points.split()) > 10
+    engine.dispose()
+
+
+def test_route_cards_are_ordered_by_how_often_they_are_ridden() -> None:
+    """The list should answer "which are my regulars", not "what was last"."""
+    routes = [
+        Route(id=1, name="Once", ride_count=1),
+        Route(id=2, name="Thrice", ride_count=3),
+        Route(id=3, name="Twice", ride_count=2),
+    ]
+    latest = {1: "2026-08-20", 2: "2020-01-01", 3: "2026-08-19"}
+
+    pairs = [(r, latest[r.id or 0]) for r in routes]
+    pairs.sort(key=lambda p: (p[0].ride_count, p[1] or ""), reverse=True)
+
+    assert [r.name for r, _ in pairs] == ["Thrice", "Twice", "Once"]
+
+
+def test_ties_go_to_the_most_recently_ridden() -> None:
+    routes = [Route(id=1, name="Older", ride_count=2), Route(id=2, name="Newer", ride_count=2)]
+    latest = {1: "2020-01-01", 2: "2026-08-19"}
+
+    pairs = [(r, latest[r.id or 0]) for r in routes]
+    pairs.sort(key=lambda p: (p[0].ride_count, p[1] or ""), reverse=True)
+
+    assert [r.name for r, _ in pairs] == ["Newer", "Older"]
+
+
+@pytest.mark.parametrize(
+    ("rides", "expected"),
+    [(1, 1.0), (2, 0.55), (3, 0.53), (10, 0.16), (30, 0.12), (100, 0.12)],
+)
+def test_heat_opacity_adapts_to_the_ride_count(rides: int, expected: float) -> None:
+    """A constant alpha cannot serve one ride and thirty at once."""
+    assert heat_opacity(rides) == pytest.approx(expected, abs=0.01)
+
+
+def test_a_single_ride_route_is_drawn_solid() -> None:
+    """With nothing to stack against, transparency only looks washed out."""
+    assert heat_opacity(1) == 1.0
+    assert heat_opacity(0) == 1.0
+
+
+def test_heat_opacity_keeps_a_lone_strand_visible_against_the_spine() -> None:
+    """The deviation the map exists to show must not vanish at any count."""
+    for rides in (2, 3, 5, 10, 30):
+        alpha = heat_opacity(rides)
+        spine = 1 - (1 - alpha) ** rides
+        assert spine - alpha > 0.2, f"no contrast at {rides} rides"
+
+
+def test_a_ride_row_carries_what_differs_between_passes(db_url: str) -> None:
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        seed_bikes(session)
+        ride = _get_ride(session, import_file(EVENING_FIT, session).ride_id)
+        row = _to_ride_row(ride)
+
+    assert row.duration == "44:24"
+    assert row.avg_speed == "25.9"
+    assert row.avg_power == "147"
+    assert row.normalized_power == "155"
+    assert row.best_20min == "155"
+    assert row.tss == "34"
+    assert row.avg_hr == "150"
+    assert row.detail_href == f"/rides/{ride.id}"
+    engine.dispose()
+
+
+def test_route_stats_include_the_fastest_pass(db_url: str) -> None:
+    """On a repeated route the best time is the number actually chased."""
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        seed_bikes(session)
+        first = _get_ride(session, import_file(EVENING_FIT, session).ride_id)
+
+        repeat = parse(EVENING_FIT.read_bytes())
+        repeat.fit_hash = "a-slower-lap"
+        slower = import_ride(repeat, session, name="Evening Ride again").ride
+        slower.moving_time_s = first.moving_time_s + 300
+        session.add(slower)
+        session.commit()
+
+        route = session.get(Route, first.route_id)
+        assert route is not None
+        stats = _route_stats(route, [first, slower])
+
+    assert stats["fastest"] == "44:24", "the faster of the two"
+    assert stats["fastest_on"] == first.start_time.strftime("%d %b %Y")
+    assert stats["avg_tss"] != EMPTY
+    assert stats["best_tss"] != EMPTY
+    engine.dispose()
+
+
+def test_route_stats_of_a_route_with_no_rides_do_not_crash() -> None:
+    """Unreachable once pruning works, but the card must not explode."""
+    stats = _route_stats(Route(id=1, name="Empty", ride_count=0), [])
+    assert stats["fastest"] == EMPTY
+    assert stats["avg_tss"] == EMPTY
+
+
+def _get_ride(session: Session, ride_id: int | None) -> Ride:
+    assert ride_id is not None
+    ride = session.get(Ride, ride_id)
+    assert ride is not None
+    return ride

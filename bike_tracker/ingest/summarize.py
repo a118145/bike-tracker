@@ -128,6 +128,13 @@ def summarize(
 
     work_kj = metrics.total_work_kj(power, window.time_s) if has_power else None
 
+    # Always computed, never copied: no FIT message carries a power curve.
+    curve = (
+        metrics.power_curve(power, dt=window.sample_interval_s)
+        if has_power
+        else dict.fromkeys(metrics.POWER_CURVE_WINDOWS_S)
+    )
+
     # Gradient: prefer the device's own channel, which is smoothed against the
     # wheel sensor, and fall back to computing it from altitude over distance.
     grade_series = window.channels.get("grade_pct")
@@ -182,6 +189,14 @@ def summarize(
         energy_kj=work_kj,
         calories_kcal=metrics.calories_kcal(work_kj) if work_kj else None,
         left_balance_pct=avg_balance,
+        best_power_5s_w=_round_or_none(curve[5]),
+        best_power_15s_w=_round_or_none(curve[15]),
+        best_power_30s_w=_round_or_none(curve[30]),
+        best_power_60s_w=_round_or_none(curve[60]),
+        best_power_300s_w=_round_or_none(curve[300]),
+        best_power_600s_w=_round_or_none(curve[600]),
+        best_power_1200s_w=_round_or_none(curve[1200]),
+        best_power_3600s_w=_round_or_none(curve[3600]),
         power_available=has_power,
         load_source=LOAD_SOURCE_POWER if has_power and if_ else LOAD_SOURCE_HR,
         ftp_at_time_w=ftp_w,
@@ -274,6 +289,11 @@ def _travelled(distance: FloatArray) -> float | None:
 # ---------------------------------------------------------------------------
 # Small conversions
 # ---------------------------------------------------------------------------
+
+
+def _round_or_none(value: float | None) -> int | None:
+    """Watts are shown whole; None must survive as None, not become 0."""
+    return None if value is None else round(value)
 
 
 def _pick(primary: Any, fallback: float | None) -> float | None:

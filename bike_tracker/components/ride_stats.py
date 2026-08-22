@@ -58,18 +58,21 @@ STAT_GROUPS: list[StatGroup] = [
         ],
     ),
     StatGroup(
-        title="Elevation",
-        icon="mountain",
+        title="Max. average power",
+        icon="trending-up",
+        columns=4,
+        # No channel: there is no time series behind these. Each value is the
+        # best window *somewhere* in the ride, so there is nothing to plot
+        # against time — same reason the Energy card is inert.
         stats=[
-            Stat("elevation_gain", "Ascent", "m"),
-            Stat("elevation_loss", "Descent", "m"),
-            Stat("avg_vam", "Ø VAM", "m/h"),
-            Stat("avg_grade", "Ø Grade", "%"),
-            Stat("max_grade", "Max. Grade", "%"),
-            Stat("min_grade", "Min. Grade", "%"),
-            Stat("avg_altitude", "Ø Altitude", "m"),
-            Stat("max_altitude", "Max. Altitude", "m"),
-            Stat("min_altitude", "Min. Altitude", "m"),
+            Stat("best_power_5s", "5 s", "W"),
+            Stat("best_power_15s", "15 s", "W"),
+            Stat("best_power_30s", "30 s", "W"),
+            Stat("best_power_60s", "1 min", "W"),
+            Stat("best_power_300s", "5 min", "W"),
+            Stat("best_power_600s", "10 min", "W"),
+            Stat("best_power_1200s", "20 min", "W"),
+            Stat("best_power_3600s", "1 h", "W"),
         ],
     ),
     StatGroup(
@@ -93,16 +96,6 @@ STAT_GROUPS: list[StatGroup] = [
         ],
     ),
     StatGroup(
-        title="Cadence",
-        icon="rotate-cw",
-        channel="cadence",
-        stats=[
-            Stat("avg_cadence", "Ø Cadence", "rpm"),
-            Stat("max_cadence", "Max. Cadence", "rpm"),
-            Stat("min_cadence", "Min. Cadence", "rpm"),
-        ],
-    ),
-    StatGroup(
         title="Power",
         icon="zap",
         channel="power",
@@ -116,6 +109,31 @@ STAT_GROUPS: list[StatGroup] = [
             Stat("energy", "Work", "kJ"),
             Stat("balance", "Ø Balance L/R"),
             Stat("ftp", "FTP", "W"),
+        ],
+    ),
+    StatGroup(
+        title="Elevation",
+        icon="mountain",
+        stats=[
+            Stat("elevation_gain", "Ascent", "m"),
+            Stat("elevation_loss", "Descent", "m"),
+            Stat("avg_vam", "Ø VAM", "m/h"),
+            Stat("avg_grade", "Ø Grade", "%"),
+            Stat("max_grade", "Max. Grade", "%"),
+            Stat("min_grade", "Min. Grade", "%"),
+            Stat("avg_altitude", "Ø Altitude", "m"),
+            Stat("max_altitude", "Max. Altitude", "m"),
+            Stat("min_altitude", "Min. Altitude", "m"),
+        ],
+    ),
+    StatGroup(
+        title="Cadence",
+        icon="rotate-cw",
+        channel="cadence",
+        stats=[
+            Stat("avg_cadence", "Ø Cadence", "rpm"),
+            Stat("max_cadence", "Max. Cadence", "rpm"),
+            Stat("min_cadence", "Min. Cadence", "rpm"),
         ],
     ),
     StatGroup(

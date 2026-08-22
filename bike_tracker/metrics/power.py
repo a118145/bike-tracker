@@ -150,6 +150,53 @@ def calories_kcal(work_kj: float, efficiency: float = GROSS_EFFICIENCY) -> float
     return work_kj / KJ_PER_KCAL / efficiency
 
 
+# The mean-maximal power curve shown on the ride-detail card, in seconds.
+# Short windows describe sprinting, long ones describe endurance; the shape
+# between them is what tells a sprint apart from a steady climb when both
+# average the same wattage.
+POWER_CURVE_WINDOWS_S: tuple[int, ...] = (5, 15, 30, 60, 300, 600, 1200, 3600)
+
+
+def best_average_power(power: FloatArray, window_s: float, dt: float = 1.0) -> float | None:
+    """Highest average power sustained over any ``window_s`` of the samples.
+
+    The whole array is searched — unlike :func:`best_20min_window`, which looks
+    only near a user's guess because it is estimating FTP from a deliberate
+    test effort. Here every window is a candidate.
+
+    Args:
+        power: Power samples in watts on a uniform ``dt`` grid. NaN and
+            negative values count as zero, as everywhere else: coasting is
+            real zero-power time.
+        window_s: Width of the averaging window.
+        dt: Seconds between samples.
+
+    Returns:
+        The best average, or **None when the ride is shorter than the window**
+        — there is no value to report, which the UI renders as an em dash
+        rather than inventing a number from a partial window.
+    """
+    samples = np.clip(np.nan_to_num(as_float_array(power), nan=0.0), 0.0, None)
+    if samples.size == 0 or dt <= 0 or window_s <= 0:
+        return None
+
+    window = max(1, round(window_s / dt))
+    if samples.size < window:
+        return None
+
+    averages = rolling_mean(samples, window)
+    return float(np.max(averages)) if averages.size else None
+
+
+def power_curve(
+    power: FloatArray,
+    dt: float = 1.0,
+    windows_s: tuple[int, ...] = POWER_CURVE_WINDOWS_S,
+) -> dict[int, float | None]:
+    """The best average for each window, keyed by window length in seconds."""
+    return {w: best_average_power(power, w, dt=dt) for w in windows_s}
+
+
 @dataclass(frozen=True)
 class BestWindow:
     """The best-averaging window found by :func:`best_20min_window`."""

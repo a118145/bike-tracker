@@ -14,6 +14,7 @@ and elevation, where the device's figure comes from a different data source
 altogether (see ``metrics/elevation.py``).
 """
 
+import itertools
 from pathlib import Path
 
 import numpy as np
@@ -23,7 +24,7 @@ from sqlmodel import Session, col, create_engine, select
 from bike_tracker import metrics
 from bike_tracker.ingest import streams
 from bike_tracker.ingest.fit import ParsedRide, name_from_filename, parse
-from bike_tracker.ingest.importer import import_ride
+from bike_tracker.ingest.importer import import_ride, refresh_route_stats
 from bike_tracker.ingest.seed import seed_bikes
 from bike_tracker.ingest.sources.file import import_file
 from bike_tracker.models import Bike, Lap, MetricFields, Ride, RideStream, Route
@@ -434,11 +435,57 @@ def test_laps_carry_the_full_metric_set(db_url: str) -> None:
         for lap in laps:
             for name in MetricFields.model_fields:
                 # Wherever the ride has a value the lap must have one too.
-                # Fields that are None on the ride (lthr_at_time_bpm, with no
-                # LTHR evaluation on record) are legitimately None on a lap.
-                if getattr(ride, name) is None:
+                # Two exceptions, both meaningful rather than gaps:
+                #   * fields None on the ride as well (lthr_at_time_bpm, with
+                #     no LTHR evaluation on record);
+                #   * power-curve windows longer than the lap, which have no
+                #     answer — asserted precisely below instead.
+                if getattr(ride, name) is None or name.startswith("best_power_"):
                     continue
                 assert getattr(lap, name) is not None, f"lap {lap.index} has no {name}"
+    engine.dispose()
+
+
+def test_the_power_curve_covers_exactly_the_windows_that_fit(db_url: str) -> None:
+    """A window longer than the lap has no answer, and must say so.
+
+    Reporting a partial window would claim a sustained effort over more time
+    than the rider actually spent.
+    """
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        seed_bikes(session)
+        result = import_file(EVENING_FIT, session)
+        ride = _get(session, Ride, result.ride_id)
+        laps = session.exec(
+            select(Lap).where(Lap.ride_id == ride.id).order_by(col(Lap.index))
+        ).all()
+
+        for window in metrics.POWER_CURVE_WINDOWS_S:
+            column = f"best_power_{window}s_w"
+            for row in (ride, *laps):
+                value = getattr(row, column)
+                if window <= row.moving_time_s:
+                    assert value is not None, f"{column} missing with {row.moving_time_s:.0f}s"
+                    assert value > 0
+                else:
+                    assert value is None, f"{column} invented a value for {window}s"
+
+        # The 44-minute ride has no hour; its 450 s final lap has no 10 minutes.
+        assert ride.best_power_3600s_w is None
+        assert ride.best_power_1200s_w is not None
+        assert laps[-1].best_power_600s_w is None
+
+
+def test_the_power_curve_decreases_with_window_length(db_url: str) -> None:
+    """Nobody holds their sprint wattage for twenty minutes."""
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        seed_bikes(session)
+        ride = _get(session, Ride, import_file(MORNING_FIT, session).ride_id)
+        values = [getattr(ride, f"best_power_{w}s_w") for w in metrics.POWER_CURVE_WINDOWS_S]
+        assert all(v is not None for v in values), "the 2h12 ride fits every window"
+        assert all(a >= b for a, b in itertools.pairwise(values))
     engine.dispose()
 
 
@@ -557,6 +604,79 @@ def test_import_creates_a_route_and_a_preview(db_url: str) -> None:
         assert route.ride_count == 1
         assert route.avg_distance_m == pytest.approx(ride.distance_m)
         assert 10 < len(route.points) < 1000, "route geometry must be simplified"
+    engine.dispose()
+
+
+def test_the_ride_track_is_stored_for_the_route_heat_map(db_url: str) -> None:
+    """Rebuilding this per page load costs ~20 ms a ride; storing it costs none."""
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        seed_bikes(session)
+        ride = _get(session, Ride, import_file(EVENING_FIT, session).ride_id)
+
+        assert 10 < len(ride.map_points) < 2000
+        lats = [p[0] for p in ride.map_points]
+        lons = [p[1] for p in ride.map_points]
+        assert all(47.0 < lat < 56.0 for lat in lats), "not real latitudes"
+        assert all(5.0 < lon < 16.0 for lon in lons), "not real longitudes"
+        # Simplified, not the raw stream.
+        assert len(ride.map_points) < 500
+    engine.dispose()
+
+
+def test_moving_the_only_ride_off_a_route_deletes_it(db_url: str) -> None:
+    """A route with no rides is not an empty route; it should not exist."""
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        seed_bikes(session)
+        first = _get(session, Ride, import_file(EVENING_FIT, session).ride_id)
+        second = _get(session, Ride, import_file(MORNING_FIT, session).ride_id)
+        lonely = first.route_id
+        target = second.route_id
+        assert lonely is not None and target is not None and lonely != target
+
+        first.route_id = target
+        session.add(first)
+        session.commit()
+
+        assert refresh_route_stats(session, _get(session, Route, lonely)) is None
+        assert session.get(Route, lonely) is None
+    engine.dispose()
+
+
+def test_moving_a_ride_off_a_shared_route_keeps_it(db_url: str) -> None:
+    """Only the last ride leaving should prune; the route survives otherwise."""
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        seed_bikes(session)
+        first = _get(session, Ride, import_file(EVENING_FIT, session).ride_id)
+
+        repeat = parse(EVENING_FIT.read_bytes())
+        repeat.fit_hash = "a-second-lap-of-the-same-route"
+        second = import_ride(repeat, session, name="Evening Ride again").ride
+        assert second.route_id == first.route_id
+        shared = first.route_id
+        assert shared is not None
+
+        first.route_id = None
+        session.add(first)
+        session.commit()
+
+        survivor = refresh_route_stats(session, _get(session, Route, shared))
+        assert survivor is not None
+        assert survivor.ride_count == 1
+        assert survivor.avg_distance_m == pytest.approx(second.distance_m)
+    engine.dispose()
+
+
+def test_importing_never_prunes_the_route_it_just_created(db_url: str) -> None:
+    """assign_route commits the ride first, so the new route is never empty."""
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        seed_bikes(session)
+        ride = _get(session, Ride, import_file(EVENING_FIT, session).ride_id)
+        assert ride.route_id is not None
+        assert session.get(Route, ride.route_id) is not None
     engine.dispose()
 
 

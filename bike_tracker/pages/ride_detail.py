@@ -14,13 +14,20 @@ The page has no nav entry of its own; ``NavState.active_route`` resolves
 
 import reflex as rx
 
+from ..components.hover_cursor import hover_cursor_bridge
 from ..components.lap_bars import lap_bars
 from ..components.map_view import empty_map, route_map
 from ..components.ride_chart import ride_chart
 from ..components.ride_stats import ride_stat_cards
+from ..components.route_dialog import route_dialog
 from ..navigation import routes
 from ..navigation.nav_config import label_for_route
-from ..states.ride_detail_state import NONE_OPTION, RideDetailState, SelectOption
+from ..states.ride_detail_state import (
+    CREATE_ROUTE_OPTION,
+    NONE_OPTION,
+    RideDetailState,
+    SelectOption,
+)
 from ..ui.base import base_page
 
 # Read from the nav config so the back link names whatever the menu calls this
@@ -43,7 +50,18 @@ def _back_link() -> rx.Component:
 
 
 def _option(item: SelectOption) -> rx.Component:
-    return rx.select.item(item.label, value=rx.cond(item.value == "", NONE_OPTION, item.value))
+    """One dropdown entry.
+
+    The last route entry is the "Create new" action rather than a route, and
+    is italicised so it does not read as one.
+    """
+    return rx.select.item(
+        rx.text(
+            item.label,
+            font_style=rx.cond(item.value == CREATE_ROUTE_OPTION, "italic", "normal"),
+        ),
+        value=rx.cond(item.value == "", NONE_OPTION, item.value),
+    )
 
 
 def _selector(
@@ -128,6 +146,10 @@ def _found() -> rx.Component:
         ),
         _chart(),
         ride_stat_cards(),
+        # Picking "Create new" from the route dropdown makes a route and hands
+        # straight to this dialog, so it has to be mounted here as well as on
+        # the routes list.
+        route_dialog(),
         spacing="4",
         align="start",
         width="100%",
@@ -142,6 +164,9 @@ def _missing() -> rx.Component:
 def ride_detail() -> rx.Component:
     return base_page(
         rx.vstack(
+            # Installs the client-side chart-to-map hover cursor. Renders
+            # nothing; it only needs to be on the page.
+            hover_cursor_bridge(),
             _back_link(),
             rx.cond(RideDetailState.not_found, _missing(), _found()),
             spacing="4",

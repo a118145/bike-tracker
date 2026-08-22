@@ -16,9 +16,9 @@ into *every* state class. It must not be declared as a field — that raises
 ``DynamicRouteArgShadowsStateVarError`` — hence the ``TYPE_CHECKING`` block.
 """
 
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import plotly.graph_objects as go
@@ -32,10 +32,15 @@ from ..components.map_view import (
     MapTrace,
     build_map_figure,
 )
-from ..components.ride_chart import CHANNEL_SPECS, ChartData, build_chart_figure
+from ..components.ride_chart import (
+    CHANNEL_SPECS,
+    ChartData,
+    build_chart_figure,
+    chart_indices,
+)
 from ..components.toast import notify_error, notify_success
 from ..ingest import streams
-from ..ingest.importer import refresh_route_stats
+from ..ingest.importer import create_manual_route, refresh_route_stats
 from ..metrics import Point
 from ..models import Bike, Lap, MetricFields, Ride, RideStream, Route
 from ..utils.formatting import (
@@ -47,6 +52,7 @@ from ..utils.formatting import (
     format_speed_kmh,
 )
 from ..utils.logging import get_logger
+from .routes_state import NEW_ROUTE_NAME, RoutesState
 
 log = get_logger(__name__).bind(state="RideDetailState")
 
@@ -136,6 +142,29 @@ class RideDetailState(rx.State):
     @rx.event
     def load(self):
         """Page ``on_load`` — fetch the ride and rebuild every derived view."""
+        # Unmount the map before touching the database.
+        #
+        # Reflex does not reset state on client-side navigation, so arriving
+        # from another route this still holds the *previous* one's figure and
+        # `has_track=True`. React would therefore mount the plot immediately
+        # with the stale figure, MapLibre would start fetching the basemap
+        # style, and the `on_load` delta would land mid-fetch. Plotly's
+        # `updateMap` only waits for the style when the style *string* changes
+        # — it is "carto-positron" both times — so it goes straight to
+        # `addSource` and MapLibre throws "Style is not done loading."
+        #
+        # That throw is not recoverable: the rejected promise stays in
+        # `gd._promises` forever, and `Plots.previousPromises` is the first
+        # step of every later plot, so the div never redraws again. Hence the
+        # stale map that only a full remount fixed.
+        #
+        # Clearing the flag and yielding sends it as its own delta, which
+        # unmounts the plot (running `Plotly.purge`, clearing `_promises`) so
+        # the next mount coincides with the final figure and is gated on the
+        # style `load` event.
+        self.has_track = False
+        yield
+
         self.not_found = False
         self.selected_lap = -1
         self.active_channels = []
@@ -248,11 +277,21 @@ class RideDetailState(rx.State):
         self.bike_options = [SelectOption(value="", label="Unassigned")] + [
             SelectOption(value=str(bike.id), label=bike.name) for bike in bikes
         ]
-        self.route_options = [SelectOption(value="", label="No route")] + [
-            SelectOption(value=str(route.id), label=route.name) for route in all_routes
-        ]
+        self._build_route_options(all_routes)
         self.bike_value = str(ride.bike_id) if ride.bike_id else ""
         self.route_value = str(ride.route_id) if ride.route_id else ""
+
+    def _build_route_options(self, all_routes: Sequence[Route]) -> None:
+        """The route dropdown's contents.
+
+        Rebuilt after every reassignment, not only on load: a route can be
+        pruned by that reassignment and must stop being offered immediately.
+        """
+        self.route_options = (
+            [SelectOption(value="", label="No route")]
+            + [SelectOption(value=str(route.id), label=route.name) for route in all_routes]
+            + [SelectOption(value=CREATE_ROUTE_OPTION, label="Create new")]
+        )
 
     def _build_map(self, ride: Ride) -> None:
         """Draw the track, the lap boundaries, and whatever is selected.
@@ -300,12 +339,31 @@ class RideDetailState(rx.State):
             traces,
             markers=self._lap_markers(points),
             focus=focus,
+            cursor_track=self._cursor_track(),
             # Changes with the ride and the selection, so Plotly reapplies the
             # viewport instead of keeping the previous one. See build_map_figure.
             uirevision=f"{ride.id}:{self.selected_lap}",
             style=STYLE_LIGHT,
         )
         self.map_figure = built.figure
+
+    def _cursor_track(self) -> tuple[list[float], list[float]] | None:
+        """Coordinates sampled at exactly the chart's plotted indices.
+
+        The hover cursor addresses this by the chart's own ``pointIndex``, so
+        the two selections must be produced by the same function. Samples with
+        no GPS fix stay in as NaN rather than being dropped — removing them
+        would shift every later index and put the dot in the wrong place.
+        """
+        lat = np.asarray(self._channels.get("lat", []), dtype=np.float64)
+        lon = np.asarray(self._channels.get("lon", []), dtype=np.float64)
+        if lat.size == 0 or lon.size != lat.size:
+            return None
+
+        indices = chart_indices(len(self._time_s))
+        if indices.size == 0:
+            return None
+        return lat[indices].tolist(), lon[indices].tolist()
 
     def _selected_slice(self) -> tuple[int, int] | None:
         """Sample range of the selected lap, or None for the whole ride."""
@@ -425,8 +483,21 @@ class RideDetailState(rx.State):
         return notify_success(f"Bike set to {name}.")
 
     @rx.event
-    def set_route(self, value: str):
-        """Reassign the ride's route and refresh both routes' averages."""
+    async def set_route(self, value: str):
+        """Reassign the ride's route and refresh both routes' averages.
+
+        The dropdown's last entry is an action, not a route: it creates one
+        from this ride and hands straight over to the rename dialog.
+
+        A generator rather than a plain handler because the create branch has
+        to emit two things — a toast and the opened dialog — so every exit path
+        here yields instead of returning a value.
+        """
+        if value == CREATE_ROUTE_OPTION:
+            async for event in self._create_route():
+                yield event
+            return
+
         value = _from_select(value)
         self.route_value = value
         new_route_id = int(value) if value else None
@@ -434,28 +505,80 @@ class RideDetailState(rx.State):
         with rx.session() as session:
             ride = session.get(Ride, int(self.ride_id))
             if ride is None:
-                return notify_error("That ride no longer exists.")
+                yield notify_error("That ride no longer exists.")
+                return
 
             old_route_id = ride.route_id
             if old_route_id == new_route_id:
-                return None
+                return
 
             ride.route_id = new_route_id
             session.add(ride)
             session.commit()
 
-            # Both sides change: the route losing a ride and the one gaining
-            # it each need their averages recomputed.
+            # Read the name before refreshing: the refresh commits, a commit
+            # expires every instance in the session, and the route the ride
+            # just left may be deleted outright.
+            new_route = session.get(Route, new_route_id) if new_route_id else None
+            name = new_route.name if new_route is not None else "No route"
+
+            # Both sides change: the route losing a ride and the one gaining it
+            # each need their averages recomputed. The one being left may now
+            # have no rides at all, in which case refresh_route_stats prunes it.
             for route_id in {old_route_id, new_route_id} - {None}:
                 route = session.get(Route, route_id)
                 if route is not None:
                     refresh_route_stats(session, route)
 
-            new_route = session.get(Route, new_route_id) if new_route_id else None
-            name = new_route.name if new_route is not None else "No route"
+            # Rebuild the options: a pruned route must stop being offered, or
+            # picking it would write a foreign key to a row that is gone.
+            self._build_route_options(session.exec(select(Route).order_by(col(Route.name))).all())
 
         log.info("ride_detail.route.set", ride_id=self.ride_id, route_id=new_route_id)
-        return notify_success(f"Route set to {name}.")
+        yield notify_success(f"Route set to {name}.")
+
+    async def _create_route(self) -> AsyncIterator[Any]:
+        """Split this ride onto a route of its own, then offer to name it.
+
+        The route takes the ride's own polyline, so future rides along the same
+        roads match into it exactly as they would a route the importer made.
+        The old route is pruned by ``refresh_route_stats`` if this was its last
+        ride.
+        """
+        with rx.session() as session:
+            ride = session.get(Ride, int(self.ride_id))
+            if ride is None:
+                yield notify_error("That ride no longer exists.")
+                return
+            if not ride.map_points:
+                yield notify_error("This ride has no GPS track to build a route from.")
+                return
+
+            old_route_id = ride.route_id
+            route = create_manual_route(session, ride, NEW_ROUTE_NAME)
+            route_id, route_name = route.id or 0, route.name
+
+            if old_route_id is not None and old_route_id != route_id:
+                previous = session.get(Route, old_route_id)
+                if previous is not None:
+                    refresh_route_stats(session, previous)
+            refresh_route_stats(session, route)
+
+            self._build_route_options(session.exec(select(Route).order_by(col(Route.name))).all())
+
+        self.route_value = str(route_id)
+        log.info("ride_detail.route.created", ride_id=self.ride_id, route_id=route_id)
+        yield notify_success(f"Created “{route_name}”.")
+
+        # Hand straight to the rename dialog so the placeholder does not
+        # survive the interaction. Cancelling still leaves the route created
+        # and assigned — it is just called "New route".
+        #
+        # States are flat, so this reaches RoutesState with get_state rather
+        # than inheritance, and drives it through a plain method rather than
+        # by firing its event handler.
+        routes_state = await self.get_state(RoutesState)
+        routes_state.prepare_rename(route_id, route_name)
 
     # ------------------------------------------------------------------
     # Chart
@@ -484,6 +607,10 @@ class RideDetailState(rx.State):
 # Radix's select rejects "" as an item value, so "unassigned" travels as a
 # sentinel and is translated back here rather than in the component.
 NONE_OPTION = "__none__"
+
+# Second sentinel on the route dropdown: an action rather than a route.
+# Radix rejects "" as an item value, so both specials travel as sentinels.
+CREATE_ROUTE_OPTION = "__create__"
 
 
 def _from_select(value: str) -> str:
@@ -539,6 +666,15 @@ def _stats(m: MetricFields) -> dict[str, str]:
         "energy": format_number(m.energy_kj),
         "balance": format_balance(m.left_balance_pct),
         "decoupling": format_number(m.decoupling_pct, 1),
+        # Mean-maximal power curve
+        "best_power_5s": format_number(m.best_power_5s_w),
+        "best_power_15s": format_number(m.best_power_15s_w),
+        "best_power_30s": format_number(m.best_power_30s_w),
+        "best_power_60s": format_number(m.best_power_60s_w),
+        "best_power_300s": format_number(m.best_power_300s_w),
+        "best_power_600s": format_number(m.best_power_600s_w),
+        "best_power_1200s": format_number(m.best_power_1200s_w),
+        "best_power_3600s": format_number(m.best_power_3600s_w),
         # Energy
         "calories": format_number(m.calories_kcal),
         "calories_per_hour": _per_hour(m.calories_kcal, m.moving_time_s),

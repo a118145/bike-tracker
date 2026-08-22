@@ -13,6 +13,7 @@ identity and relations, a lap's position within its ride.
 from datetime import UTC, datetime
 
 from reflex.model import ModelRegistry
+from sqlalchemy import JSON, Column
 from sqlmodel import Field, SQLModel
 
 from .metric_fields import LOAD_SOURCE_HR, LOAD_SOURCE_POWER, MetricFields
@@ -69,6 +70,19 @@ class Ride(MetricFields, table=True):
     # it, rendering a 40-card Rides list means decompressing 40 GPS streams on
     # every page load. Empty string means the ride has no usable track.
     preview_points: str = Field(default="")
+
+    # The ride's own track as [[lat, lon], ...], Douglas-Peucker simplified at
+    # the same 15 m the route geometry uses. Distinct from `preview_points`,
+    # which is SVG viewbox coordinates with latitude scaled by cos(mean_lat)
+    # and y negated — unrecoverable back to real coordinates.
+    #
+    # Precomputed because the route heat map draws one line per matched ride.
+    # Rebuilding these from `RideStream` costs ~20 ms per ride (the decode is
+    # cheap; Douglas-Peucker is not), so a 100-ride commuting route would
+    # spend seconds re-deriving identical geometry on every page load.
+    # `import_ride` already has the decoded track in hand, so writing it here
+    # is one extra simplify call at import and none afterwards.
+    map_points: list[list[float]] = Field(default_factory=list, sa_column=Column(JSON))
 
 
 @ModelRegistry.register

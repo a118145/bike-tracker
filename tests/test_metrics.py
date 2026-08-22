@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from bike_tracker import metrics
+from bike_tracker.metrics import geo  # noqa: F401  (for geo.TILE_SIZE_PX in the fit helpers)
 
 # ---------------------------------------------------------------------------
 # Array helpers
@@ -251,6 +252,57 @@ def test_best_window_needs_a_ride_at_least_as_long_as_the_window() -> None:
     assert metrics.best_20min_window(np.full(100, 200.0)) is None
 
 
+def test_best_average_power_finds_the_hardest_window() -> None:
+    """A 30 s effort at 400 W is the best 30 s of the ride, wherever it sits."""
+    power = np.concatenate([np.full(60, 100.0), np.full(30, 400.0), np.full(300, 150.0)])
+    assert metrics.best_average_power(power, 30) == pytest.approx(400.0)
+
+
+def test_best_average_power_dilutes_over_a_longer_window() -> None:
+    """A 30 s spike cannot hold its wattage across a minute."""
+    power = np.concatenate([np.full(60, 100.0), np.full(30, 400.0), np.full(300, 150.0)])
+    assert metrics.best_average_power(power, 60) == pytest.approx(275.0)
+
+
+def test_best_average_power_of_steady_power_is_that_power() -> None:
+    assert metrics.best_average_power(np.full(600, 200.0), 300) == pytest.approx(200.0)
+
+
+def test_best_average_power_is_none_when_the_window_does_not_fit() -> None:
+    """No value to report is not the same as zero — the card shows an em dash."""
+    assert metrics.best_average_power(np.full(100, 250.0), 3600) is None
+    assert metrics.best_average_power(np.empty(0), 5) is None
+
+
+def test_best_average_power_searches_the_whole_ride() -> None:
+    """Unlike best_20min_window, which only looks near a user's guess."""
+    power = np.full(4000, 100.0)
+    power[3900:3950] = 500.0  # a sprint at the very end
+    assert metrics.best_average_power(power, 30) == pytest.approx(500.0)
+
+
+def test_best_average_power_counts_coasting_as_zero() -> None:
+    power = np.concatenate([np.full(30, 300.0), np.zeros(30)])
+    assert metrics.best_average_power(power, 60) == pytest.approx(150.0)
+
+
+def test_the_power_curve_decreases_as_the_window_grows() -> None:
+    """The defining shape: nobody sustains their sprint wattage for an hour."""
+    rng = np.random.default_rng(0)
+    power = np.abs(rng.normal(200, 80, 7200))
+    curve = metrics.power_curve(power)
+    values = [v for v in curve.values() if v is not None]
+    assert len(values) == len(metrics.POWER_CURVE_WINDOWS_S)
+    assert all(a >= b for a, b in itertools.pairwise(values))
+
+
+def test_the_power_curve_drops_windows_that_do_not_fit() -> None:
+    curve = metrics.power_curve(np.full(700, 200.0))
+    assert curve[600] == pytest.approx(200.0)
+    assert curve[1200] is None
+    assert curve[3600] is None
+
+
 def test_baseline_is_watts_per_beat() -> None:
     assert metrics.baseline(np.full(60, 180.0), np.full(60, 120.0)) == pytest.approx(1.5)
 
@@ -400,6 +452,67 @@ def test_viewport_of_a_single_point_does_not_divide_by_zero() -> None:
     """No span in either axis; must return a finite zoom, not an infinity."""
     _lat, _lon, zoom = metrics.bounds_to_center_zoom([(48.0, 11.0)])
     assert math.isfinite(zoom)
+
+
+def _visible_span(zoom: float, width_px: int, height_px: int) -> tuple[float, float]:
+    """Degrees of longitude and Mercator units of latitude a viewport shows.
+
+    The inverse of what :func:`bounds_to_center_zoom` solves, so a test can ask
+    the question that actually matters — does the track fit? — instead of
+    re-deriving the same formula and agreeing with itself.
+    """
+    scale = 360.0 / (metrics.geo.TILE_SIZE_PX * 2**zoom)
+    return width_px * scale, height_px * scale
+
+
+def _fits(points: list[tuple[float, float]], width_px: int, height_px: int) -> tuple[bool, bool]:
+    _lat, _lon, zoom = metrics.bounds_to_center_zoom(points, width_px=width_px, height_px=height_px)
+    visible_lon, visible_lat = _visible_span(zoom, width_px, height_px)
+    min_lat, min_lon, max_lat, max_lon = metrics.bounding_box(points)
+    needed_lon = max_lon - min_lon
+    needed_lat = metrics.geo._mercator_y(max_lat) - metrics.geo._mercator_y(min_lat)
+    return needed_lon <= visible_lon, needed_lat <= visible_lat
+
+
+@pytest.mark.parametrize(
+    "track",
+    [
+        pytest.param([(48.0, 11.0), (48.05, 11.05)], id="diagonal"),
+        pytest.param([(48.0, 11.0), (48.30, 11.01)], id="tall-and-narrow"),
+        pytest.param([(48.0, 11.0), (48.01, 11.40)], id="wide-and-flat"),
+        pytest.param([(48.0, 11.0), (48.10, 11.10)], id="square"),
+        pytest.param([(60.0, 11.0), (60.10, 11.10)], id="far-north"),
+        pytest.param([(0.5, 11.0), (0.6, 11.10)], id="near-equator"),
+    ],
+)
+def test_the_viewport_never_clips_the_track(track: list[tuple[float, float]]) -> None:
+    """The regression guard for the map framing bug.
+
+    Assuming 256 px tiles (the Google/Leaflet convention) instead of
+    MapLibre's 512 put every zoom one level too high, so a track needed 174% of
+    the viewport height — clipped top and bottom on every ride. This inverts
+    the maths and demands the bounding box actually fit, in both axes.
+    """
+    fits_wide, fits_tall = _fits(track, 900, 460)
+    assert fits_wide, "track is clipped left/right"
+    assert fits_tall, "track is clipped top/bottom"
+
+
+def test_the_viewport_fits_a_wide_map_and_a_square_one() -> None:
+    """Aspect ratio must not change whether the track fits, only the margins."""
+    track = [(48.0, 11.0), (48.10, 11.02)]
+    for width, height in ((900, 460), (460, 460), (1600, 400), (400, 900)):
+        fits_wide, fits_tall = _fits(track, width, height)
+        assert fits_wide and fits_tall, f"clipped at {width}x{height}"
+
+
+def test_the_viewport_leaves_a_margin() -> None:
+    """`padding` should leave the track short of the edges, not touching."""
+    track = [(48.0, 11.0), (48.10, 11.10)]
+    _lat, _lon, zoom = metrics.bounds_to_center_zoom(track, width_px=900, height_px=460)
+    _visible_lon, visible_lat = _visible_span(zoom, 900, 460)
+    needed_lat = metrics.geo._mercator_y(48.10) - metrics.geo._mercator_y(48.0)
+    assert 0.80 < needed_lat / visible_lat < 0.95
 
 
 def test_viewport_of_an_empty_track() -> None:

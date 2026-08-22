@@ -24,8 +24,10 @@ built on top of it. Dashboard, Routes, Fitness and Bikes are navigable stubs.
 | FIT import, metrics, streams, route matching, bike detection | Done |
 | Rides list and ride detail (map, chart, laps, stat cards) | Done |
 | Full metric set per lap; ride-time chart axis; lap markers and zoom on the map | Done |
-| Dashboard, Routes, Fitness, Bikes | Stubs |
-| Fitness-evaluation dialog, Bikes CRUD | Not started |
+| Bikes: profiles, sensors, odometer recalculation | Done |
+| Routes: derived list, heat map, rename, manual creation | Done |
+| Dashboard, Fitness | Stubs |
+| Fitness-evaluation dialog | Not started |
 | Hammerhead poller, MCP server, Docker deployment | Not started |
 
 ## Running it
@@ -86,7 +88,7 @@ Four files: `navigation/routes.py`, `navigation/nav_config.py`,
 ## Checks
 
 ```bash
-uv run pytest -q                                # 221 tests
+uv run pytest -q                                # 265 tests
 uv run mypy .
 uv run ruff check . && uv run ruff format --check .
 uv run reflex compile 2>&1 | grep -i deprecat   # must print nothing

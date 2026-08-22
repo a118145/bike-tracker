@@ -13,8 +13,13 @@ from .arrays import FloatArray
 
 EARTH_RADIUS_M = 6_371_008.8
 
-# Web Mercator tile size, used by MapLibre and every XYZ tile scheme.
-TILE_SIZE_PX = 256
+# Web Mercator tile size **as MapLibre defines zoom**, which is what Plotly's
+# `map` subplot renders with. Do not "correct" this to 256: that is the
+# Google/Leaflet convention, and using it makes every computed zoom exactly one
+# level too high — half the intended span in each axis. Measured against the
+# reference tracks, that put 174% of the track's height inside the viewport
+# while the width still fitted, i.e. clipped top and bottom and nothing else.
+TILE_SIZE_PX = 512
 
 Point = tuple[float, float]
 
@@ -175,6 +180,12 @@ def bounds_to_center_zoom(
     and the dashboard heat map.
 
     ``padding`` > 1 leaves a margin so the track does not touch the edges.
+
+    ``width_px`` deliberately under-states the real container (which is around
+    1090 px: a Radix ``size="4"`` container less the 16 em sidebar). Because
+    the result is the *smaller* of the two axis fits, under-stating width can
+    only zoom further out — it letterboxes, it never clips. Over-stating it
+    would clip. Keep the conservative value.
     """
     if not points:
         return 0.0, 0.0, 1.0

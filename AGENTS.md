@@ -162,6 +162,71 @@ advice. Read it before editing.
     counts as unchanged, which is how a new ride inherits the previous ride's
     camera. It must vary with whatever should move the viewport.
 
+20. **`metrics.geo.TILE_SIZE_PX` is 512, not 256.** MapLibre — which Plotly's
+    `map` subplot renders with — defines zoom against 512 px tiles. The
+    Leaflet/Google 256 makes every zoom one level too high.
+    `tests/test_metrics.py` inverts the framing maths and asserts the bounding
+    box fits, so this cannot regress silently.
+
+21. **`bounds_to_center_zoom`'s `width_px` under-states the container on
+    purpose.** The result is the smaller of the two axis fits, so a narrow
+    guess only ever letterboxes; a wide one clips.
+
+22. **Never name a font in a `Scattermap` `textfont`.** A MapLibre style
+    serves glyphs from its own font stack; naming one it does not carry
+    ("Arial Black") makes the label vanish behind a CORS error with no
+    exception.
+
+23. **The chart-to-map hover cursor is the one piece of custom JS.** It is
+    client-side by necessity — see `components/hover_cursor.py`. If you add
+    another plotly-touching script, import `plotly.js/dist/plotly`, never
+    `plotly.js`: the package root is CommonJS and its Vite interop shim
+    references `global`, which blanks the page.
+
+24. **Read ORM attributes before the session commits.** A commit expires every
+    instance, so touching one after the `with rx.session()` block raises
+    `DetachedInstanceError`. Capture ids and names into locals first — this
+    bit `BikesState.submit_form`, where the sensor rewrite commits a second
+    time.
+
+25. **A route with no rides is deleted, and the pruning lives in
+    `refresh_route_stats`.** That is the one choke point every count change
+    passes through — it runs on both sides of a reassignment — so a hook
+    anywhere else is bypassable. It returns `Route | None`; never call it
+    before the ride's new `route_id` is committed.
+
+26. **A card carrying an inline action must not be an `rx.link`.**
+    `stop_propagation` halts bubbling but does not cancel an anchor's
+    activation, so the click navigates anyway. Use `on_click` plus
+    `rx.redirect` on the card, as `pages/routes.py` and `pages/bikes.py` do.
+
+27. **Geometry for maps is precomputed, never derived per request.**
+    `Ride.map_points` exists because rebuilding a polyline from `RideStream`
+    costs ~20 ms a ride — seconds on a route with a hundred of them. Storing
+    it is free: `import_ride` already has the decoded track in hand.
+
+28. **Heat-map opacity is a function of the ride count, not a constant.** See
+    `route_detail_state.heat_opacity`. A fixed alpha either makes one ride
+    invisible or saturates ten into a solid blob, losing the deviations the
+    map exists to show.
+
+29. **Unmount a map before reloading its page's state.** Reflex does not
+    reset state on client-side navigation, so a detail page arrives holding
+    the previous record's figure and renders it immediately. MapLibre then
+    starts fetching the basemap while the real figure lands mid-fetch, and
+    Plotly's `updateMap` only waits for the style when the style *string*
+    changes — so it calls `addSource` and throws "Style is not done loading."
+    The throw is unrecoverable: the rejected promise stays in `gd._promises`,
+    which `Plots.previousPromises` checks first on every later plot, so the
+    div never redraws again. Set `has_track = False` and `yield` at the top of
+    `load` — that unmounts the plot, runs `Plotly.purge`, and guarantees the
+    next mount coincides with the final figure.
+
+30. **List cards use `components/cards.card_grid`.** `repeat(auto-fill,
+    CARD_WIDTH)` with a *fixed* track floors the column count and keeps the
+    card width; `minmax()` would stretch two cards to half the row.
+    `rx.grid`'s `columns` prop cannot express this — it takes a fixed count.
+
 ## Type checking
 
 `mypy .` is strict everywhere except `components/` and `pages/`, where several

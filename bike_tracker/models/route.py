@@ -12,6 +12,7 @@ whenever a ride joins or leaves.
 
 from datetime import UTC, datetime
 
+from pydantic import field_validator
 from reflex.model import ModelRegistry
 from sqlalchemy import JSON, Column
 from sqlmodel import Field, SQLModel
@@ -32,6 +33,34 @@ class Route(SQLModel, table=True):
     # Simplified representative polyline as [[lat, lon], ...]. Simplified, not
     # raw: this is what route matching compares against and what the list-card
     # previews draw, and a raw 1 Hz track is ~10k points per ride.
+    #
+    # Written once, from the first ride that created the route, and never
+    # revisited — so a route can outlive the ride whose geometry defines it.
+    # Re-deriving a representative track from the current members would be a
+    # separate feature; it is deliberately not one today.
     points: list[list[float]] = Field(default_factory=list, sa_column=Column(JSON))
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class RouteForm(SQLModel):
+    """Non-table form model for the rename dialog.
+
+    Only the name: everything else on a route is derived from its rides and
+    must not be typed in.
+    """
+
+    name: str = Field(min_length=1, max_length=100)
+
+    @field_validator("name")
+    @classmethod
+    def _strip_name(cls, value: str) -> str:
+        """Reject whitespace-only names and store the trimmed one.
+
+        ``min_length=1`` alone accepts "   ", which then shows as a blank
+        route in the list and in every ride's route dropdown.
+        """
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Name must not be blank.")
+        return stripped
