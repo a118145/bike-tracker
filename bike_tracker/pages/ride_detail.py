@@ -16,8 +16,8 @@ import reflex as rx
 
 from ..components.hover_cursor import hover_cursor_bridge
 from ..components.lap_bars import lap_bars
-from ..components.map_view import empty_map, route_map
-from ..components.ride_chart import ride_chart
+from ..components.map_view import map_slot
+from ..components.ride_chart import chart_skeleton, ride_chart
 from ..components.ride_stats import ride_stat_cards
 from ..components.route_dialog import route_dialog
 from ..navigation import routes
@@ -127,7 +127,11 @@ def _header() -> rx.Component:
 def _chart() -> rx.Component:
     return rx.card(
         rx.vstack(
-            ride_chart(RideDetailState.chart_figure),
+            rx.cond(
+                RideDetailState.plots_loading,
+                chart_skeleton(),
+                ride_chart(RideDetailState.chart_figure),
+            ),
             lap_bars(),
             spacing="3",
             width="100%",
@@ -139,10 +143,10 @@ def _chart() -> rx.Component:
 def _found() -> rx.Component:
     return rx.vstack(
         _header(),
-        rx.cond(
-            RideDetailState.has_track,
-            route_map(RideDetailState.map_figure),
-            empty_map(),
+        map_slot(
+            RideDetailState.map_figure,
+            loading=RideDetailState.plots_loading,
+            has_track=RideDetailState.has_track,
         ),
         _chart(),
         ride_stat_cards(),

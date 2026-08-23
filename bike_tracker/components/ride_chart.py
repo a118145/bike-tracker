@@ -242,7 +242,23 @@ def decode_chart_data(stream: object | None) -> ChartData:
     )
 
 
-def ride_chart(figure: rx.Var[go.Figure], height: str = "280px") -> rx.Component:
+def chart_skeleton(height: str = "280px") -> rx.Component:
+    """Placeholder occupying the chart's box while the figure is built.
+
+    Purely cosmetic, unlike its counterpart on the map: a cartesian plot has
+    no MapLibre style to race against. It exists so a detail page does not
+    show the previous ride's curves for the duration of a client-side
+    navigation.
+    """
+    return rx.skeleton(
+        loading=True,
+        width="100%",
+        height=height,
+        border_radius="0.6em",
+    )
+
+
+def ride_chart(figure: rx.Var[dict], height: str = "280px") -> rx.Component:
     """The chart itself. Zoom and pan come from the library.
 
     ``on_hover`` and ``on_unhover`` are handed raw ``FunctionVar``s rather than
@@ -252,7 +268,8 @@ def ride_chart(figure: rx.Var[go.Figure], height: str = "280px") -> rx.Component
     ``components/hover_cursor.py``.
     """
     return rx.plotly(
-        data=figure,
+        # Serialised dict re-typed for the prop — see map_view.route_map.
+        data=figure.to(go.Figure),
         config={"displayModeBar": False, "scrollZoom": True, "doubleClick": "reset"},
         use_resize_handler=True,
         on_hover=rx.Var("window.__btHover").to(FunctionVar),

@@ -13,7 +13,7 @@ The page has no nav entry of its own; ``NavState.active_route`` resolves
 
 import reflex as rx
 
-from ..components.map_view import empty_map, route_map
+from ..components.map_view import map_slot
 from ..components.route_rides_table import route_rides_table
 from ..navigation import routes as route_urls
 from ..navigation.nav_config import label_for_route
@@ -100,10 +100,11 @@ def _found() -> rx.Component:
             spacing="1",
             align="start",
         ),
-        rx.cond(
-            RouteDetailState.has_track,
-            route_map(RouteDetailState.map_figure),
-            empty_map("No GPS track on this route's rides."),
+        map_slot(
+            RouteDetailState.map_figure,
+            loading=RouteDetailState.plots_loading,
+            has_track=RouteDetailState.has_track,
+            empty_message="No GPS track on this route's rides.",
         ),
         rx.cond(
             RouteDetailState.truncated_note != "",

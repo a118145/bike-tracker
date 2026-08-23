@@ -172,10 +172,29 @@ advice. Read it before editing.
     purpose.** The result is the smaller of the two axis fits, so a narrow
     guess only ever letterboxes; a wide one clips.
 
-22. **Never name a font in a `Scattermap` `textfont`.** A MapLibre style
-    serves glyphs from its own font stack; naming one it does not carry
-    ("Arial Black") makes the label vanish behind a CORS error with no
-    exception.
+22. **Never put text on a `Scattermap` trace.** Not a label, not a lap
+    number — `mode` stays `"lines"` or `"markers"`, and `text`/`textfont`/
+    `textposition` stay unset. Two independent reasons, both of which cost a
+    console error and neither of which is visible from this repo:
+
+    - Plotly gives *any* text-bearing scattermap a MapLibre symbol layer with
+      `'icon-image': '{symbol}-15'` hard-coded
+      (`scattermap/convert.js`), and the default `circle` symbol fills that
+      token blank — so the id is the literal `-15`. No style carries it,
+      MapLibre fires `styleimagemissing`, and Plotly's handler
+      (`plots/map/map.js`) fetches
+      `https://unpkg.com/maki@2.1.0/icons/-15.svg` with
+      `crossOrigin='Anonymous'`, which unpkg does not answer. Three lines in
+      the console per map load, plus an outbound dependency the self-contained
+      image is not supposed to have.
+    - A MapLibre style serves glyphs as PBF ranges from its own font stack, so
+      naming a font it does not carry ("Arial Black") makes the label vanish
+      behind a CORS error with no exception.
+
+    Consequence: lap pins are plain coloured dots and the lap number lives in
+    the hover tooltip, which is why this diverges from `docs/image_3.png` on
+    purpose. `tests/test_view_models.py::test_no_map_trace_draws_text` is the
+    guard — verified to fail when text is put back.
 
 23. **The chart-to-map hover cursor is the one piece of custom JS.** It is
     client-side by necessity — see `components/hover_cursor.py`. If you add
@@ -218,14 +237,58 @@ advice. Read it before editing.
     changes — so it calls `addSource` and throws "Style is not done loading."
     The throw is unrecoverable: the rejected promise stays in `gd._promises`,
     which `Plots.previousPromises` checks first on every later plot, so the
-    div never redraws again. Set `has_track = False` and `yield` at the top of
-    `load` — that unmounts the plot, runs `Plotly.purge`, and guarantees the
-    next mount coincides with the final figure.
+    div never redraws again. Set `plots_loading = True` and `yield` at the top
+    of `load`, and clear it as the *last* statement with no `yield` in
+    between — the flag and the finished figures then land in one delta, so the
+    plot unmounts (running `Plotly.purge`), and its next mount coincides with
+    the final figure and goes through `createMap`, which *does* wait for the
+    style. `has_track` means only "this record has GPS".
+
+    This covers the load path and nothing else. A re-plot of a *mounted* map
+    unmounts nothing, and is rule 31's problem.
+
+    Render the three states through `map_view.map_slot`, never an
+    `rx.skeleton` wrapped around the plot: Radix keeps a skeleton's children
+    mounted and only hides them with `visibility: hidden`, which would leave
+    the Plotly div alive and defeat the whole mechanism.
 
 30. **List cards use `components/cards.card_grid`.** `repeat(auto-fill,
     CARD_WIDTH)` with a *fixed* track floors the column count and keeps the
     card width; `minmax()` would stretch two cards to half the row.
     `rx.grid`'s `columns` prop cannot express this — it takes a fixed count.
+
+31. **Every map trace carries an explicit stable `uid`, and the trace set
+    never changes between re-plots of a mounted map.** Plotly matches traces
+    across a re-plot by uid, and a figure that supplies none is matched *by
+    position* (`plots.js::getTraceUids`): index 0 keeps index 0's identity and
+    any surplus trace is given a freshly minted random uid. Selecting a lap
+    therefore reads to Plotly as one trace born and one destroyed, which on a
+    MapLibre subplot is `createScatterMap`→`addSource` plus
+    `dispose`→`removeLayer` — measured, one such pair per lap toggle. Those
+    are the two calls that throw "Style is not done loading." and "Map error."
+    whenever the style is not settled, and the rejection then poisons the div
+    as in rule 29. It is silent while the style happens to be loaded, which is
+    exactly why it presents as intermittent.
+
+    So: `MapTrace.uid` and `MapMarker.uid` are required, `build_map_figure`
+    rejects duplicates, an undrawable trace is emitted *empty* rather than
+    dropped, and `ride_map_traces` always returns both the track and the lap
+    trace. `tests/test_view_models.py` pins the uid set across a lap
+    selection.
+
+    **The plot state vars hold a serialised `dict`, not a `go.Figure`.**
+    Reflex's own figure serializer calls `plotly.io.to_json(figure)`, whose
+    `remove_uids` argument defaults to `True`, so going through it deletes
+    every uid on the way to the browser and silently undoes all of the above.
+    `utils/plotly_json.figure_to_dict` is the one conversion point. `rx.plotly`
+    declares `data` as `Var[Figure]` and enforces it, so the components re-type
+    the Var with `.to(go.Figure)`; the value on the wire is unchanged.
+
+    For the same reason, a figure handed to a mounted map always names its
+    style — use `blank_map_figure`, never a bare `go.Figure()`. Plotly defaults
+    a styleless figure to voyager, and a differing style *string* makes
+    `updateMap` call `setStyle` and then reconcile traces on `styledata`,
+    which fires before the style has finished loading.
 
 ## Type checking
 

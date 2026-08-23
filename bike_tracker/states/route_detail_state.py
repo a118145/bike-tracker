@@ -14,11 +14,16 @@ why ``load`` guards the ``int()``.
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import plotly.graph_objects as go
 import reflex as rx
 from sqlmodel import col, select
 
-from ..components.map_view import HEAT_COLOUR, MapTrace, build_map_figure
+from ..components.map_view import (
+    HEAT_COLOUR,
+    STYLE_LIGHT,
+    MapTrace,
+    blank_map_figure,
+    build_map_figure,
+)
 from ..models import Ride, Route
 from ..navigation import routes as route_urls
 from ..utils.formatting import (
@@ -29,6 +34,7 @@ from ..utils.formatting import (
     format_speed_kmh,
 )
 from ..utils.logging import get_logger
+from ..utils.plotly_json import figure_to_dict
 
 log = get_logger(__name__).bind(state="RouteDetailState")
 
@@ -62,8 +68,12 @@ class RouteDetailState(rx.State):
     title: str = ""
     subtitle: str = ""
 
+    # See RideDetailState.plots_loading — same contract, one plot instead
+    # of two.
+    plots_loading: bool = True
     has_track: bool = False
-    map_figure: go.Figure = go.Figure()
+    # Serialised, not `go.Figure` — see utils/plotly_json.
+    map_figure: dict = figure_to_dict(blank_map_figure(STYLE_LIGHT))
     truncated_note: str = ""
 
     stats: dict[str, str] = {}
@@ -92,11 +102,14 @@ class RouteDetailState(rx.State):
         # step of every later plot, so the div never redraws again. Hence the
         # stale map that only a full remount fixed.
         #
-        # Clearing the flag and yielding sends it as its own delta, which
-        # unmounts the plot (running `Plotly.purge`, clearing `_promises`) so
-        # the next mount coincides with the final figure and is gated on the
-        # style `load` event.
-        self.has_track = False
+        # Raising the flag and yielding sends it as its own delta, which swaps
+        # the plot for a skeleton (running `Plotly.purge`, clearing
+        # `_promises`) so the next mount coincides with the final figure and
+        # goes through `createMap`, which *does* wait for the style.
+        #
+        # This covers the load path only; re-plots of a mounted map are made
+        # safe by the trace uids instead. See MapTrace.
+        self.plots_loading = True
         yield
 
         self.not_found = False
@@ -131,6 +144,9 @@ class RouteDetailState(rx.State):
         self.rides = [_to_row(ride) for ride in rides]
         self.stats = _route_stats(route, rides)
         self._build_map(route_id, rides)
+        # Last, with no `yield` in between, so the flag and the figure land in
+        # one delta.
+        self.plots_loading = False
 
         log.info("route_detail.load", route_id=route_id, rides=len(rides))
 
@@ -148,7 +164,7 @@ class RouteDetailState(rx.State):
         drawn = [ride for ride in rides if ride.map_points][:MAX_HEAT_RIDES]
         self.has_track = bool(drawn)
         if not drawn:
-            self.map_figure = go.Figure()
+            self.map_figure = figure_to_dict(blank_map_figure(STYLE_LIGHT))
             return
 
         if len(drawn) < len([r for r in rides if r.map_points]):
@@ -157,6 +173,7 @@ class RouteDetailState(rx.State):
         opacity = heat_opacity(len(drawn))
         traces = [
             MapTrace(
+                uid=f"heat-{ride.id}",
                 points=[(p[0], p[1]) for p in ride.map_points],
                 color=HEAT_COLOUR,
                 width=4.0,
@@ -175,7 +192,7 @@ class RouteDetailState(rx.State):
             # inherit route B's camera.
             uirevision=f"route:{route_id}",
         )
-        self.map_figure = built.figure
+        self.map_figure = figure_to_dict(built.figure)
 
 
 def heat_opacity(ride_count: int) -> float:

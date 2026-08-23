@@ -56,11 +56,33 @@ CURSOR_COLOUR = "#ef4444"
 # dashboard's all-routes map must read as the same kind of thing.
 HEAT_COLOUR = "#2563eb"
 
+# The ride track: full colour when the whole ride is in scope, greyed when a
+# lap is highlighted on top of it.
+TRACK_COLOUR = "#2563eb"
+TRACK_DIMMED = "#94a3b8"
+
+# Fixed uids for the two traces the hover cursor owns. Everything else names
+# its own; see MapTrace.uid for why they exist at all.
+CURSOR_TRACK_UID = "cursor-track"
+CURSOR_UID = "cursor"
+
 
 @dataclass
 class MapTrace:
-    """One polyline to draw on a map."""
+    """One polyline to draw on a map.
 
+    ``uid`` is required and load-bearing. Plotly matches traces across a
+    re-plot by uid, and when a figure supplies none it falls back to matching
+    *by position* (``plots.js::getTraceUids``): index 0 keeps index 0's
+    identity, and any surplus trace gets a freshly minted random uid. A figure
+    whose trace count changes therefore reads to Plotly as one trace born and
+    one destroyed, which on a MapLibre subplot means ``addSource`` and
+    ``removeLayer`` — the two calls that throw "Style is not done loading."
+    and "Map error." while the style is not settled, permanently poisoning the
+    graph div. Naming every trace makes a re-plot a pure data update instead.
+    """
+
+    uid: str
     points: list[Point]
     name: str = ""
     color: str = "#2563eb"
@@ -71,16 +93,24 @@ class MapTrace:
 
 @dataclass
 class MapMarker:
-    """A labelled pin on the map — one per lap boundary.
+    """A pin on the map — one per lap boundary.
 
-    ``label`` is drawn inside the circle rather than beside it, which is what
-    keeps a dense track legible. Plotly's ``marker.symbol`` would give a glyph
-    closer to the reference screenshot, but it resolves against the map
-    style's sprite sheet and silently falls back to a plain dot when the
-    sprite is missing; text always renders, and a lap number says more than a
-    generic icon anyway.
+    ``label`` is **not drawn on the map**; it reaches the reader through the
+    hover tooltip only, and that is deliberate. Plotly gives any ``scattermap``
+    trace carrying text a MapLibre symbol layer with
+    ``'icon-image': '{symbol}-15'`` hard-coded
+    (``scattermap/convert.js``), and with the default ``circle`` symbol that id
+    evaluates to the literal ``-15``. No style has such an image, so MapLibre
+    fires ``styleimagemissing`` and Plotly's handler (``plots/map/map.js``)
+    fetches it from ``unpkg.com`` with ``crossOrigin='Anonymous'`` — which
+    unpkg does not answer, leaving a CORS error and a failed request in the
+    console on every single map load.
+
+    So ``docs/image_3.png`` shows a lap number inside the pin and this does
+    not. That divergence is the fix, not an oversight. See AGENTS.md rule 22.
     """
 
+    uid: str
     point: Point
     label: str = ""
     hover: str = ""
@@ -98,6 +128,73 @@ class MapFigure:
     zoom: float = 1.0
     empty: bool = True
     traces: list[MapTrace] = field(default_factory=list)
+
+
+def _check_unique_uids(traces: list[MapTrace], markers: list[MapMarker] | None) -> None:
+    """Fail loudly on a duplicate uid rather than losing a trace silently.
+
+    Plotly keeps one entry per uid, so two traces sharing one means the second
+    overwrites the first on the map with no error anywhere.
+    """
+    uids = [t.uid for t in traces[:MAX_HEATMAP_TRACES]] + [m.uid for m in markers or []]
+    duplicates = {uid for uid in uids if uids.count(uid) > 1}
+    if duplicates or "" in uids:
+        raise ValueError(f"map trace uids must be unique and non-empty: {sorted(duplicates)}")
+
+
+def blank_map_figure(style: str = STYLE_LIGHT) -> go.Figure:
+    """An empty figure that still names the style.
+
+    Never `go.Figure()`: with no ``layout.map.style`` Plotly falls back to its
+    own default (voyager), and a style *string* that differs from the mounted
+    map's makes ``updateMap`` call ``map.setStyle`` and then reconcile traces
+    on ``styledata`` — which fires before the style is actually loaded. That
+    is the other way into "Style is not done loading."
+    """
+    figure = go.Figure()
+    figure.update_layout(
+        map={"style": style},
+        margin={"l": 0, "r": 0, "t": 0, "b": 0},
+        showlegend=False,
+        paper_bgcolor="rgba(0,0,0,0)",
+    )
+    return figure
+
+
+def ride_map_traces(
+    points: list[Point],
+    *,
+    segment: list[Point],
+    ride_name: str,
+    lap_label: str,
+) -> list[MapTrace]:
+    """The ride's two track traces: the whole path, and the highlighted lap.
+
+    Always both, in this order, whether or not a lap is selected — an
+    unselected lap is an *empty* trace, not an absent one. Keeping the set
+    fixed is what lets Plotly take its update path on a lap click instead of
+    destroying and recreating MapLibre layers. See :class:`MapTrace`.
+    """
+    selected = len(segment) >= 2
+    return [
+        MapTrace(
+            uid="track",
+            points=points,
+            name="" if selected else ride_name,
+            color=TRACK_DIMMED if selected else TRACK_COLOUR,
+            width=3.0 if selected else 4.0,
+            opacity=0.35 if selected else 1.0,
+            hover=not selected,
+        ),
+        MapTrace(
+            uid="lap",
+            points=segment if selected else [],
+            name=lap_label if selected else "",
+            color=TRACK_COLOUR,
+            width=5.0,
+            hover=selected,
+        ),
+    ]
 
 
 def build_map_figure(
@@ -142,15 +239,21 @@ def build_map_figure(
     """
     figure = go.Figure()
     all_points: list[Point] = []
+    _check_unique_uids(traces, markers)
 
     for trace in traces[:MAX_HEATMAP_TRACES]:
-        if len(trace.points) < 2:
-            continue
-        all_points.extend(trace.points)
+        # A trace with too few points to draw is still emitted, as an empty
+        # one. Dropping it would shrink the trace set, and a trace that comes
+        # and goes is exactly the dispose/create churn `uid` exists to
+        # prevent. It contributes nothing to the framing either way.
+        drawable = len(trace.points) >= 2
+        if drawable:
+            all_points.extend(trace.points)
         figure.add_trace(
             go.Scattermap(
-                lat=[p[0] for p in trace.points],
-                lon=[p[1] for p in trace.points],
+                uid=trace.uid,
+                lat=[p[0] for p in trace.points] if drawable else [],
+                lon=[p[1] for p in trace.points] if drawable else [],
                 mode="lines",
                 line={"width": trace.width, "color": trace.color},
                 opacity=trace.opacity,
@@ -163,19 +266,19 @@ def build_map_figure(
     for marker in markers or []:
         figure.add_trace(
             go.Scattermap(
+                uid=marker.uid,
                 lat=[marker.point[0]],
                 lon=[marker.point[1]],
-                mode="markers+text",
+                # Markers only, never "markers+text". Text is what makes Plotly
+                # build a symbol layer and reach for an icon that does not
+                # exist; see MapMarker and AGENTS.md rule 22.
+                mode="markers",
                 marker={"size": marker.size, "color": marker.color},
-                text=[marker.label],
-                textposition="middle center",
-                # Font family is deliberately left to Plotly's default. A
-                # MapLibre style serves glyphs as PBF ranges from its own font
-                # stack, so naming a font it does not carry ("Arial Black")
-                # makes the label silently fail to render behind a CORS error.
-                textfont={"color": "white", "size": 11},
                 hovertext=[marker.hover or marker.label],
-                hoverinfo="text" if marker.hover else "skip",
+                # The label is only reachable by hover now, so this must not
+                # switch off for a marker that carries a label but no separate
+                # hover string.
+                hoverinfo="text" if (marker.hover or marker.label) else "skip",
                 showlegend=False,
             )
         )
@@ -184,6 +287,7 @@ def build_map_figure(
         cursor_lat, cursor_lon = cursor_track
         figure.add_trace(
             go.Scattermap(
+                uid=CURSOR_TRACK_UID,
                 lat=cursor_lat,
                 lon=cursor_lon,
                 mode="markers",
@@ -195,6 +299,7 @@ def build_map_figure(
         )
         figure.add_trace(
             go.Scattermap(
+                uid=CURSOR_UID,
                 lat=[],
                 lon=[],
                 mode="markers",
@@ -235,11 +340,15 @@ def build_map_figure(
     )
 
 
-def route_map(figure: rx.Var[go.Figure], height: str = "460px") -> rx.Component:
+def route_map(figure: rx.Var[dict], height: str = "460px") -> rx.Component:
     """Full-page interactive map. Zoom and pan come from the library."""
     return rx.box(
         rx.plotly(
-            data=figure,
+            # The figure travels as an already-serialised dict, because
+            # Reflex's own `go.Figure` serializer strips every trace uid
+            # (utils/plotly_json). `data` is declared `Var[Figure]`, so the
+            # Var is re-typed here; the value on the wire is unchanged.
+            data=figure.to(go.Figure),
             config={
                 "displayModeBar": False,
                 "scrollZoom": True,
@@ -273,6 +382,44 @@ def empty_map(message: str = "No GPS track for this ride.", height: str = "460px
         height=height,
         border_radius="0.6em",
         background=rx.color("gray", 3),
+    )
+
+
+def map_skeleton(height: str = "460px") -> rx.Component:
+    """Placeholder occupying the map's exact box while the figure is built."""
+    return rx.skeleton(
+        loading=True,
+        width="100%",
+        height=height,
+        border_radius="0.6em",
+    )
+
+
+def map_slot(
+    figure: rx.Var[dict],
+    *,
+    loading: rx.Var[bool],
+    has_track: rx.Var[bool],
+    height: str = "460px",
+    empty_message: str = "No GPS track for this ride.",
+) -> rx.Component:
+    """The map's three states: still loading, drawn, or no GPS at all.
+
+    ``rx.cond`` and deliberately *not* an ``rx.skeleton`` wrapped around the
+    plot. Radix keeps a skeleton's children mounted and merely hides them with
+    ``visibility: hidden``, so wrapping would leave the Plotly div alive — and
+    the whole point is that the div must not exist until the final figure
+    does. ``rx.cond`` compiles to a JSX ternary, which unmounts for real and
+    lets react-plotly run ``Plotly.purge``.
+    """
+    return rx.cond(
+        loading,
+        map_skeleton(height),
+        rx.cond(
+            has_track,
+            route_map(figure, height),
+            empty_map(empty_message, height),
+        ),
     )
 
 

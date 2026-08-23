@@ -21,7 +21,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import plotly.graph_objects as go
 import reflex as rx
 from sqlmodel import col, select
 
@@ -29,8 +28,9 @@ from .. import metrics
 from ..components.map_view import (
     STYLE_LIGHT,
     MapMarker,
-    MapTrace,
+    blank_map_figure,
     build_map_figure,
+    ride_map_traces,
 )
 from ..components.ride_chart import (
     CHANNEL_SPECS,
@@ -52,12 +52,11 @@ from ..utils.formatting import (
     format_speed_kmh,
 )
 from ..utils.logging import get_logger
+from ..utils.plotly_json import figure_to_dict
 from .routes_state import NEW_ROUTE_NAME, RoutesState
 
 log = get_logger(__name__).bind(state="RideDetailState")
 
-TRACK_COLOUR = "#2563eb"
-TRACK_DIMMED = "#94a3b8"
 
 # Douglas-Peucker tolerance for what the map draws. Tighter than the stored
 # route geometry because this is the ride itself at full zoom.
@@ -96,9 +95,15 @@ class RideDetailState(rx.State):
     title: str = ""
     subtitle: str = ""
 
+    # True while `load` is still assembling the figures. Gates the map and the
+    # chart behind a skeleton; see the comment in `load`. Defaults to True so
+    # a cold page paints the skeleton rather than flashing "No GPS track".
+    plots_loading: bool = True
     has_track: bool = False
-    map_figure: go.Figure = go.Figure()
-    chart_figure: go.Figure = go.Figure()
+    # Serialised figures, not `go.Figure`: Reflex's own figure serializer
+    # strips every trace uid. See utils/plotly_json.
+    map_figure: dict = figure_to_dict(blank_map_figure(STYLE_LIGHT))
+    chart_figure: dict = {}
 
     stats: dict[str, str] = {}
     active_channels: list[str] = []
@@ -142,27 +147,29 @@ class RideDetailState(rx.State):
     @rx.event
     def load(self):
         """Page ``on_load`` — fetch the ride and rebuild every derived view."""
-        # Unmount the map before touching the database.
+        # Unmount both plots before touching the database.
         #
         # Reflex does not reset state on client-side navigation, so arriving
-        # from another route this still holds the *previous* one's figure and
-        # `has_track=True`. React would therefore mount the plot immediately
-        # with the stale figure, MapLibre would start fetching the basemap
-        # style, and the `on_load` delta would land mid-fetch. Plotly's
-        # `updateMap` only waits for the style when the style *string* changes
-        # — it is "carto-positron" both times — so it goes straight to
-        # `addSource` and MapLibre throws "Style is not done loading."
+        # from another route this still holds the *previous* one's figures.
+        # React would mount the plot immediately with the stale figure,
+        # MapLibre would start fetching the basemap style, and the `on_load`
+        # delta would land mid-fetch. Plotly's `updateMap` only waits for the
+        # style when the style *string* changes — it is "carto-positron" both
+        # times — so it goes straight to `addSource` and MapLibre throws
+        # "Style is not done loading."
         #
         # That throw is not recoverable: the rejected promise stays in
         # `gd._promises` forever, and `Plots.previousPromises` is the first
-        # step of every later plot, so the div never redraws again. Hence the
-        # stale map that only a full remount fixed.
+        # step of every later plot, so the div never redraws again.
         #
-        # Clearing the flag and yielding sends it as its own delta, which
-        # unmounts the plot (running `Plotly.purge`, clearing `_promises`) so
-        # the next mount coincides with the final figure and is gated on the
-        # style `load` event.
-        self.has_track = False
+        # Raising the flag and yielding sends it as its own delta, which swaps
+        # the plots for skeletons (running `Plotly.purge`, clearing
+        # `_promises`) so the next mount coincides with the final figure and
+        # goes through `createMap`, which *does* wait for the style.
+        #
+        # This covers the load path only. Re-plots of a mounted map — a lap
+        # click — are made safe by the trace uids instead; see MapTrace.
+        self.plots_loading = True
         yield
 
         self.not_found = False
@@ -200,6 +207,10 @@ class RideDetailState(rx.State):
         self._build_map(ride)
         self.stats = _stats(ride)
         self._rebuild_chart()
+        # Last, and with no `yield` between here and the figures above, so the
+        # flag and the finished figures reach the client in one delta and the
+        # plot's first mount already holds the final figure.
+        self.plots_loading = False
 
         log.info(
             "ride_detail.load",
@@ -308,32 +319,18 @@ class RideDetailState(rx.State):
         )
         self.has_track = len(points) >= 2
         if not self.has_track:
-            self.map_figure = go.Figure()
+            self.map_figure = figure_to_dict(blank_map_figure(STYLE_LIGHT))
             return
 
         selected = self._selected_slice()
-        traces: list[MapTrace] = []
-        focus: list[Point] | None = None
-
-        if selected is None:
-            traces.append(
-                MapTrace(points=_thin(points), name=ride.name, color=TRACK_COLOUR, width=4.0)
-            )
-        else:
-            segment = _thin(points[selected[0] : selected[1]])
-            traces.append(
-                MapTrace(points=_thin(points), color=TRACK_DIMMED, width=3.0, opacity=0.35)
-            )
-            if len(segment) >= 2:
-                traces.append(
-                    MapTrace(
-                        points=segment,
-                        name=f"Lap {self.selected_lap + 1}",
-                        color=TRACK_COLOUR,
-                        width=5.0,
-                    )
-                )
-                focus = segment
+        segment = _thin(points[selected[0] : selected[1]]) if selected else []
+        focus: list[Point] | None = segment if len(segment) >= 2 else None
+        traces = ride_map_traces(
+            _thin(points),
+            segment=segment,
+            ride_name=ride.name,
+            lap_label=f"Lap {self.selected_lap + 1}",
+        )
 
         built = build_map_figure(
             traces,
@@ -345,7 +342,7 @@ class RideDetailState(rx.State):
             uirevision=f"{ride.id}:{self.selected_lap}",
             style=STYLE_LIGHT,
         )
-        self.map_figure = built.figure
+        self.map_figure = figure_to_dict(built.figure)
 
     def _cursor_track(self) -> tuple[list[float], list[float]] | None:
         """Coordinates sampled at exactly the chart's plotted indices.
@@ -386,6 +383,9 @@ class RideDetailState(rx.State):
                 continue
             markers.append(
                 MapMarker(
+                    # Keyed on the lap, not on the position in this list, so
+                    # the set is identical whatever is selected.
+                    uid=f"lap-marker-{lap_bar.index}",
                     point=points[i0],
                     label=lap_bar.label,
                     hover=f"Lap {lap_bar.label} · {lap_bar.distance_km} km · {lap_bar.duration}",
@@ -590,17 +590,19 @@ class RideDetailState(rx.State):
         if 0 <= self.selected_lap < len(self._lap_bounds):
             lap_span = self._lap_bounds[self.selected_lap]
 
-        self.chart_figure = build_chart_figure(
-            ChartData.from_channels(
-                time_s=np.asarray(self._time_s, dtype=np.float64),
-                altitude_m=np.asarray(self._channels.get("altitude", []), dtype=np.float64),
-                channels={
-                    key: np.asarray(values, dtype=np.float64)
-                    for key, values in self._channels.items()
-                },
-            ),
-            list(self.active_channels),
-            lap_span,
+        self.chart_figure = figure_to_dict(
+            build_chart_figure(
+                ChartData.from_channels(
+                    time_s=np.asarray(self._time_s, dtype=np.float64),
+                    altitude_m=np.asarray(self._channels.get("altitude", []), dtype=np.float64),
+                    channels={
+                        key: np.asarray(values, dtype=np.float64)
+                        for key, values in self._channels.items()
+                    },
+                ),
+                list(self.active_channels),
+                lap_span,
+            )
         )
 
 

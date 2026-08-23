@@ -20,7 +20,9 @@ from bike_tracker.components.map_view import (
     LAP_MARKER_COLOUR,
     MapMarker,
     MapTrace,
+    blank_map_figure,
     build_map_figure,
+    ride_map_traces,
 )
 from bike_tracker.components.ride_chart import (
     CHANNEL_SPECS,
@@ -442,7 +444,7 @@ def test_a_chart_with_no_samples_has_an_empty_axis() -> None:
 def test_the_map_frames_the_track(imported: ImportedRide) -> None:
     ride, _laps, _stream, _bikes = imported
     track = [(48.0, 11.0), (48.02, 11.03), (48.01, 11.05)]
-    built = build_map_figure([MapTrace(points=track, name=ride.name)])
+    built = build_map_figure([MapTrace(uid="track", points=track, name=ride.name)])
 
     assert not built.empty
     assert built.figure.data[0].type == "scattermap"
@@ -453,7 +455,7 @@ def test_the_map_frames_the_track(imported: ImportedRide) -> None:
 
 def test_the_map_uses_a_token_free_style() -> None:
     """No account, no API key — the container has no outbound credentials."""
-    built = build_map_figure([MapTrace(points=[(48.0, 11.0), (48.1, 11.1)])])
+    built = build_map_figure([MapTrace(uid="track", points=[(48.0, 11.0), (48.1, 11.1)])])
     assert built.figure.layout.map.style in {
         "carto-positron",
         "carto-darkmatter",
@@ -463,29 +465,75 @@ def test_the_map_uses_a_token_free_style() -> None:
 
 def test_a_ride_with_no_gps_produces_an_empty_map() -> None:
     assert build_map_figure([]).empty is True
-    assert build_map_figure([MapTrace(points=[(48.0, 11.0)])]).empty is True
+    assert build_map_figure([MapTrace(uid="track", points=[(48.0, 11.0)])]).empty is True
 
 
 def test_the_heatmap_caps_how_many_tracks_it_draws() -> None:
     """Hundreds of tracks at once will stall any renderer."""
     traces = [
-        MapTrace(points=[(48.0 + i * 0.001, 11.0), (48.0 + i * 0.001, 11.1)]) for i in range(400)
+        MapTrace(uid=f"heat-{i}", points=[(48.0 + i * 0.001, 11.0), (48.0 + i * 0.001, 11.1)])
+        for i in range(400)
     ]
     assert len(build_map_figure(traces).figure.data) <= 250
 
 
-def test_lap_markers_carry_the_lap_number() -> None:
-    """docs/image_3.png: a purple circle on the route, white glyph inside."""
+def test_lap_markers_carry_the_lap_number_in_the_hover() -> None:
+    """A purple pin on the route; the lap number reaches the reader by hover.
+
+    Deliberately not drawn on the map — text on a scattermap makes Plotly
+    request a nonexistent icon from unpkg. See test_no_map_trace_draws_text.
+    """
     built = build_map_figure(
-        [MapTrace(points=[(48.0, 11.0), (48.1, 11.1)])],
-        markers=[MapMarker(point=(48.05, 11.05), label="2", hover="Lap 2")],
+        [MapTrace(uid="track", points=[(48.0, 11.0), (48.1, 11.1)])],
+        markers=[MapMarker(uid="lap-marker-1", point=(48.05, 11.05), label="2", hover="Lap 2")],
     )
     marker_trace = built.figure.data[-1]
 
-    assert marker_trace.mode == "markers+text"
-    assert marker_trace.text == ("2",)
+    assert marker_trace.mode == "markers"
+    assert marker_trace.lat == (48.05,)
     assert marker_trace.marker.color == LAP_MARKER_COLOUR
-    assert marker_trace.textfont.color == "white"
+    assert marker_trace.hovertext == ("Lap 2",)
+    assert marker_trace.hoverinfo == "text"
+
+
+def test_a_marker_without_a_hover_string_still_offers_its_label() -> None:
+    """The label is hover-only now, so it must not become unreachable."""
+    built = build_map_figure(
+        [MapTrace(uid="track", points=[(48.0, 11.0), (48.1, 11.1)])],
+        markers=[MapMarker(uid="lap-marker-1", point=(48.05, 11.05), label="2")],
+    )
+    marker_trace = built.figure.data[-1]
+
+    assert marker_trace.hovertext == ("2",)
+    assert marker_trace.hoverinfo == "text"
+
+
+def test_no_map_trace_draws_text() -> None:
+    """The guard against reintroducing the unpkg icon fetch.
+
+    Plotly gives any text-bearing scattermap a symbol layer with
+    ``'icon-image': '{symbol}-15'`` hard-coded, and the default `circle` symbol
+    fills that token blank — so the id is the literal `-15`, no style has it,
+    and Plotly fetches it from unpkg.com with `crossOrigin='Anonymous'`, which
+    unpkg does not answer. Three console lines per map load, none of them
+    visible from this repo. Hence: no text on any map trace, ever.
+    """
+    built = build_map_figure(
+        [
+            MapTrace(uid="track", points=[(48.0, 11.0), (48.1, 11.1)]),
+            MapTrace(uid="lap", points=[]),
+        ],
+        markers=[
+            MapMarker(uid="lap-marker-1", point=(48.05, 11.05), label="2", hover="Lap 2"),
+            MapMarker(uid="lap-marker-2", point=(48.06, 11.06), label="3", hover="Lap 3"),
+        ],
+        cursor_track=([48.0, 48.1], [11.0, 11.1]),
+    )
+
+    for trace in built.figure.data:
+        assert "text" not in (trace.mode or ""), f"{trace.uid} draws text on the map"
+        assert not trace.text, f"{trace.uid} carries text"
+        assert trace.textfont is None or trace.textfont.family is None
 
 
 def test_focus_frames_the_lap_not_the_whole_track() -> None:
@@ -493,8 +541,8 @@ def test_focus_frames_the_lap_not_the_whole_track() -> None:
     whole = [(48.0 + i * 0.002, 11.0) for i in range(50)]
     segment = whole[10:15]
 
-    wide = build_map_figure([MapTrace(points=whole)])
-    zoomed = build_map_figure([MapTrace(points=whole)], focus=segment)
+    wide = build_map_figure([MapTrace(uid="track", points=whole)])
+    zoomed = build_map_figure([MapTrace(uid="track", points=whole)], focus=segment)
 
     assert zoomed.zoom > wide.zoom
     assert zoomed.center_lat == pytest.approx((segment[0][0] + segment[-1][0]) / 2)
@@ -508,13 +556,13 @@ def test_uirevision_changes_with_the_selection() -> None:
     Without a token that moves, a new ride inherits the previous camera — the
     stale-map bug — and zooming to a lap silently does nothing.
     """
-    trace = [MapTrace(points=[(48.0, 11.0), (48.1, 11.1)])]
+    trace = [MapTrace(uid="track", points=[(48.0, 11.0), (48.1, 11.1)])]
     assert build_map_figure(trace, uirevision="7:-1").figure.layout.uirevision == "7:-1"
     assert build_map_figure(trace, uirevision="7:2").figure.layout.uirevision == "7:2"
 
 
 def test_a_map_without_markers_draws_only_its_lines() -> None:
-    built = build_map_figure([MapTrace(points=[(48.0, 11.0), (48.1, 11.1)])])
+    built = build_map_figure([MapTrace(uid="track", points=[(48.0, 11.0), (48.1, 11.1)])])
     assert all(t.mode == "lines" for t in built.figure.data)
 
 
@@ -649,3 +697,65 @@ def _get_ride(session: Session, ride_id: int | None) -> Ride:
     ride = session.get(Ride, ride_id)
     assert ride is not None
     return ride
+
+
+def test_every_map_trace_carries_a_unique_uid() -> None:
+    """Plotly matches traces across a re-plot by uid; unnamed ones match by
+    position, which is how a changing trace set turns into addSource/
+    removeLayer on a MapLibre style that may not be loaded."""
+    built = build_map_figure(
+        [MapTrace(uid="track", points=[(48.0, 11.0), (48.1, 11.1)])],
+        markers=[MapMarker(uid="lap-marker-1", point=(48.05, 11.05), label="2")],
+        cursor_track=([48.0, 48.1], [11.0, 11.1]),
+    )
+    uids = [t.uid for t in built.figure.data]
+
+    assert all(uids)
+    assert len(set(uids)) == len(uids)
+
+
+def test_a_duplicate_uid_is_rejected() -> None:
+    with pytest.raises(ValueError, match="unique"):
+        build_map_figure(
+            [
+                MapTrace(uid="track", points=[(48.0, 11.0), (48.1, 11.1)]),
+                MapTrace(uid="track", points=[(49.0, 11.0), (49.1, 11.1)]),
+            ]
+        )
+
+
+def test_selecting_a_lap_does_not_change_the_trace_set() -> None:
+    """The invariant behind rule 31.
+
+    A lap click must be a data update, not a trace being born and another
+    destroyed — that pair is `createScatterMap`/`dispose`, and on a style that
+    is still loading it throws "Style is not done loading." / "Map error." and
+    poisons the graph div for good.
+    """
+    whole = [(48.0 + i * 0.002, 11.0) for i in range(50)]
+
+    unselected = ride_map_traces(whole, segment=[], ride_name="Ride", lap_label="Lap 2")
+    selected = ride_map_traces(whole, segment=whole[10:15], ride_name="Ride", lap_label="Lap 2")
+
+    assert [t.uid for t in unselected] == [t.uid for t in selected]
+    # The lap trace exists either way; unselected it simply has no points.
+    assert unselected[1].points == []
+    assert len(selected[1].points) == 5
+
+
+def test_an_undrawable_trace_is_still_emitted() -> None:
+    """It must not vanish from the figure — see the uid contract."""
+    built = build_map_figure(
+        [
+            MapTrace(uid="track", points=[(48.0, 11.0), (48.1, 11.1)]),
+            MapTrace(uid="lap", points=[]),
+        ]
+    )
+    assert [t.uid for t in built.figure.data] == ["track", "lap"]
+    assert built.figure.data[1].lat == ()
+
+
+def test_the_blank_map_figure_still_names_the_style() -> None:
+    """A figure with no style makes Plotly call setStyle on a mounted map, and
+    it then reconciles traces on `styledata` — before the style is loaded."""
+    assert blank_map_figure().layout.map.style == "carto-positron"
