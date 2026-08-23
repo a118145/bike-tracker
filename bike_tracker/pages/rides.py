@@ -10,7 +10,7 @@ import reflex as rx
 from ..components.cards import card_grid
 from ..components.map_view import route_preview_svg
 from ..navigation import routes
-from ..states.rides_state import RideCard, RidesState
+from ..states.rides_state import RideCard, RideEvalBadge, RidesState
 from ..ui.base import base_page
 
 
@@ -30,16 +30,56 @@ def _figure(value: rx.Var[str], unit: str, label: str) -> rx.Component:
     )
 
 
+def _eval_badge(badge: RideEvalBadge) -> rx.Component:
+    """An FTP or baseline evaluation this ride produced.
+
+    Amber and teal are the ride-detail Power-card colours, carried over so the
+    same evaluation reads the same on both pages.
+    """
+    return rx.badge(badge.label, variant="soft", color_scheme=badge.color_scheme)
+
+
 def _ride_card(ride: RideCard) -> rx.Component:
     return rx.link(
         rx.card(
             rx.hstack(
                 route_preview_svg(ride.preview_points, size="64px"),
                 rx.vstack(
-                    rx.heading(ride.name, size="3", white_space="nowrap", overflow="hidden"),
                     rx.hstack(
-                        rx.badge(ride.bike_name, variant="soft", color_scheme="gray"),
-                        rx.text(ride.date, size="1", color_scheme="gray"),
+                        rx.heading(
+                            ride.name,
+                            size="3",
+                            white_space="nowrap",
+                            overflow="hidden",
+                            # Ellipsis rather than a clip mid-character. The
+                            # date below is `flex_shrink="0"`, so it is the
+                            # name that gives way when the card runs out.
+                            text_overflow="ellipsis",
+                        ),
+                        rx.spacer(),
+                        rx.text(
+                            ride.date,
+                            size="1",
+                            color_scheme="gray",
+                            white_space="nowrap",
+                            flex_shrink="0",
+                        ),
+                        align="baseline",
+                        spacing="2",
+                        width="100%",
+                        min_width="0",
+                    ),
+                    rx.hstack(
+                        # Light red when no bike could be matched, so an
+                        # unassigned ride is visible at a glance in the list.
+                        # `variant="soft"` is what keeps it a tint rather than
+                        # an alarm.
+                        rx.badge(
+                            ride.bike_name,
+                            variant="soft",
+                            color_scheme=rx.cond(ride.bike_assigned, "gray", "red"),
+                        ),
+                        rx.foreach(ride.evaluations, _eval_badge),
                         spacing="2",
                         align="center",
                         wrap="wrap",

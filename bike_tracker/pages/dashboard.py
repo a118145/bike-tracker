@@ -156,7 +156,7 @@ def _bike_card(bike: BikeSummary) -> rx.Component:
 
 def _no_bikes() -> rx.Component:
     return rx.callout(
-        "No bike profiles yet. Add one on the Bikes page so rides can be detected and grouped.",
+        "No bike profiles yet. Add one on the Settings page so rides can be detected and grouped.",
         icon="info",
         color_scheme="gray",
         size="1",

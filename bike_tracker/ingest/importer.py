@@ -45,9 +45,23 @@ from .summarize import ChannelWindow, cross_check, summarize
 log = get_logger(__name__)
 
 # How closely a ride must follow an existing route to be counted as the same
-# one. 0.75 tolerates a different start point and a detour of a few streets;
-# above ~0.85 a single road closure spawns a duplicate route.
-ROUTE_MATCH_THRESHOLD = 0.75
+# one. Re-derived from 88 real rides after `route_match_score` was fixed: the
+# old 0.75 was tuned against a scorer whose tolerance grew with route length,
+# so its stated reasoning ("above ~0.85 a single road closure spawns a
+# duplicate route") no longer holds — a 2 km detour on a 60 km ride now scores
+# ~0.97. There is no clean gap in the distribution, because rides out of one
+# city genuinely share their first few kilometres; 0.80 sits above the dense
+# 0.40-0.72 band of partial overlaps and below the confident matches.
+ROUTE_MATCH_THRESHOLD = 0.80
+
+# Gate applied before scoring a candidate route, because a single
+# `route_match_score` costs a few hundred milliseconds and an import compares
+# against every route there is. Two tracks whose lengths or bounding boxes
+# disagree this much cannot be the same route. Measured on the real data:
+# keeps 9% of pairs, at most 23 candidates for one ride, and excludes no true
+# match.
+ROUTE_CANDIDATE_LENGTH_RATIO = 0.75
+ROUTE_CANDIDATE_BBOX_OVERLAP = 0.5
 
 # Douglas-Peucker tolerance for the stored route geometry. 15 m keeps every
 # junction and bend that distinguishes one route from another while cutting a
@@ -346,6 +360,7 @@ def ensure_map_points(session: Session, rides: Sequence[Ride]) -> int:
 def assign_route(ride: Ride, track: list[metrics.Point], session: Session) -> Route:
     """Attach the ride to the best-matching route, or start a new one."""
     simplified = metrics.simplify_polyline(track, ROUTE_SIMPLIFY_EPSILON_M)
+    ride_length_m = metrics.polyline_length_m(simplified)
 
     best_route: Route | None = None
     best_score = 0.0
@@ -353,6 +368,25 @@ def assign_route(ride: Ride, track: list[metrics.Point], session: Session) -> Ro
         if not route.points:
             continue
         candidate = [(p[0], p[1]) for p in route.points]
+
+        # Cheap rejections first. Scoring is the expensive part, and most
+        # routes in a growing table are nowhere near a given ride.
+        candidate_length_m = metrics.polyline_length_m(candidate)
+        longest = max(ride_length_m, candidate_length_m)
+        if longest <= 0.0:
+            continue
+        if min(ride_length_m, candidate_length_m) / longest < ROUTE_CANDIDATE_LENGTH_RATIO:
+            continue
+        if metrics.bbox_overlap(simplified, candidate) < ROUTE_CANDIDATE_BBOX_OVERLAP:
+            continue
+
+        # A point-to-point ride done in reverse is a different route: the
+        # commute that climbs the hill on the way out descends it on the way
+        # back, and averaging the two would describe neither. Loops have no
+        # direction worth distinguishing, and `opposite_directions` says so.
+        if metrics.opposite_directions(simplified, candidate):
+            continue
+
         score = metrics.route_match_score(simplified, candidate)
         if score > best_score:
             best_route, best_score = route, score

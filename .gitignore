@@ -34,3 +34,7 @@ docs/
 .claude/plans
 
 *.zip
+
+# Secrets. `.env.example` documents the variables; the real values never
+# get committed.
+.env

@@ -7,7 +7,6 @@ silently 404s, and nothing else in the codebase looks wrong.
 """
 
 from . import (
-    bikes,
     dashboard,
     fitness,
     not_found,
@@ -15,10 +14,10 @@ from . import (
     rides,
     route_detail,
     routes,
+    settings,
 )
 
 __all__ = [
-    "bikes",
     "dashboard",
     "fitness",
     "not_found",
@@ -26,4 +25,5 @@ __all__ = [
     "rides",
     "route_detail",
     "routes",
+    "settings",
 ]

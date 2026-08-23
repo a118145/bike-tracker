@@ -55,7 +55,7 @@ from bike_tracker.models import (
 from bike_tracker.states.dashboard_state import RideTrack, dashboard_traces, ride_totals
 from bike_tracker.states.fitness_state import _duration_label, _value_text
 from bike_tracker.states.ride_detail_state import _stats
-from bike_tracker.states.rides_state import _to_card
+from bike_tracker.states.rides_state import _to_badge, _to_card, group_evaluations
 from bike_tracker.states.route_detail_state import (
     _route_stats,
 )
@@ -175,7 +175,7 @@ def test_balance_renders_as_a_left_right_pair() -> None:
 
 def test_a_ride_card_carries_everything_the_list_shows(imported: ImportedRide) -> None:
     ride, _laps, _stream, bikes = imported
-    card = _to_card(ride, bikes)
+    card = _to_card(ride, bikes, {})
 
     assert card.name == "Evening Ride"
     assert card.distance_km == "19.2"
@@ -188,7 +188,7 @@ def test_a_ride_card_carries_everything_the_list_shows(imported: ImportedRide) -
 def test_a_ride_card_carries_its_thumbnail_geometry(imported: ImportedRide) -> None:
     """Cards render inside rx.foreach, so this cannot be computed later."""
     ride, _laps, _stream, bikes = imported
-    card = _to_card(ride, bikes)
+    card = _to_card(ride, bikes, {})
     assert card.preview_points
     assert len(card.preview_points.split()) > 10
 
@@ -196,7 +196,124 @@ def test_a_ride_card_carries_its_thumbnail_geometry(imported: ImportedRide) -> N
 def test_an_unassigned_ride_says_so_rather_than_showing_a_blank(imported: ImportedRide) -> None:
     ride, _laps, _stream, _bikes = imported
     ride.bike_id = None
-    assert _to_card(ride, {}).bike_name == "Unassigned"
+    assert _to_card(ride, {}, {}).bike_name == "Unassigned"
+
+
+def test_an_unassigned_ride_is_flagged_not_just_named(imported: ImportedRide) -> None:
+    """The card colours the badge red off this flag.
+
+    A `bike_name == "Unassigned"` check at the call site would couple the
+    component to a fallback string set in `_to_card`, and break silently if
+    either changed.
+    """
+    ride, _laps, _stream, bikes = imported
+    assert _to_card(ride, bikes, {}).bike_assigned
+
+    ride.bike_id = None
+    assert not _to_card(ride, {}, {}).bike_assigned
+
+
+def test_a_ride_card_shows_the_date_without_a_time(imported: ImportedRide) -> None:
+    """The date shares the title row on a 360 px card, so the clock had to go.
+    It is still on the detail page."""
+    ride, _laps, _stream, bikes = imported
+    card = _to_card(ride, bikes, {})
+    assert card.date == ride.start_time.strftime("%d %b %Y")
+    assert ":" not in card.date
+
+
+def test_an_ftp_evaluation_shows_as_an_amber_badge(imported: ImportedRide) -> None:
+    ride, _laps, _stream, bikes = imported
+    badges = [
+        _to_badge(
+            FitnessEval(
+                type=EVAL_FTP,
+                value=280.0,
+                valid_from=ride.start_time,
+                start_time=ride.start_time,
+                end_time=ride.end_time,
+            )
+        )
+    ]
+
+    card = _to_card(ride, bikes, {ride.id or 0: badges})
+
+    assert [(b.label, b.color_scheme) for b in card.evaluations] == [("FTP", "amber")]
+
+
+def test_a_baseline_evaluation_shows_as_a_teal_badge(imported: ImportedRide) -> None:
+    """Amber and teal are the ride-detail Power-card colours; the same
+    evaluation must read the same on both pages."""
+    ride, _laps, _stream, bikes = imported
+    badges = [
+        _to_badge(
+            FitnessEval(
+                type=EVAL_BASELINE,
+                value=1.85,
+                valid_from=ride.start_time,
+                start_time=ride.start_time,
+                end_time=ride.end_time,
+            )
+        )
+    ]
+
+    card = _to_card(ride, bikes, {ride.id or 0: badges})
+
+    assert [(b.label, b.color_scheme) for b in card.evaluations] == [("Baseline", "teal")]
+
+
+def test_a_ride_with_both_evaluations_shows_both_badges(imported: ImportedRide) -> None:
+    ride, _laps, _stream, bikes = imported
+    badges = [
+        _to_badge(
+            FitnessEval(
+                type=t,
+                value=1.0,
+                valid_from=ride.start_time,
+                start_time=ride.start_time,
+                end_time=ride.end_time,
+            )
+        )
+        for t in (EVAL_FTP, EVAL_BASELINE)
+    ]
+
+    card = _to_card(ride, bikes, {ride.id or 0: badges})
+
+    assert [b.label for b in card.evaluations] == ["FTP", "Baseline"]
+
+
+def test_a_ride_with_no_evaluation_carries_no_badges(imported: ImportedRide) -> None:
+    ride, _laps, _stream, bikes = imported
+    assert _to_card(ride, bikes, {}).evaluations == []
+
+
+def test_an_evaluation_tied_to_no_ride_lands_on_no_card(imported: ImportedRide) -> None:
+    """A hand-entered LTHR has no `ride_id`.
+
+    Grouping it under `ride_id or 0` would invent a ride, and filtering it out
+    in the query would put the rule where no test can reach it.
+    """
+    ride, _laps, _stream, _bikes = imported
+    loose = FitnessEval(
+        type=EVAL_LTHR,
+        value=165.0,
+        valid_from=ride.start_time,
+        start_time=ride.start_time,
+        end_time=ride.end_time,
+    )
+    attached = FitnessEval(
+        type=EVAL_FTP,
+        value=280.0,
+        valid_from=ride.start_time,
+        ride_id=ride.id,
+        start_time=ride.start_time,
+        end_time=ride.end_time,
+    )
+
+    grouped = group_evaluations([loose, attached])
+
+    assert list(grouped) == [ride.id]
+    assert 0 not in grouped
 
 
 # ---------------------------------------------------------------------------

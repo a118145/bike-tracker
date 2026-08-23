@@ -1,17 +1,20 @@
-"""Bikes view (masterplan §2.6).
+"""Bikes section of the Settings view (masterplan §2.6.1).
 
 A card per bike profile, an always-present card to add another, and one dialog
 serving both create and edit. There is no empty state: the add card is the
 empty state.
+
+This lives in ``components/`` rather than in the page because §2.6 is a stack
+of sections and the page's job is to compose them. Importing ``BikesState``
+from here is the direction the folder contract allows — components read
+states, states never read pages (AGENTS.md rule 4).
 """
 
 import reflex as rx
 
-from ..components.bike_dialog import bike_dialog
-from ..components.confirm_dialog import confirm_dialog
-from ..navigation import routes
 from ..states.bikes_state import BikeCard, BikesState, SensorBadge
-from ..ui.base import base_page
+from .bike_dialog import bike_dialog
+from .confirm_dialog import confirm_dialog
 
 
 def _figure(value: rx.Var[str], unit: str, label: str) -> rx.Component:
@@ -121,37 +124,40 @@ def _add_card() -> rx.Component:
     )
 
 
-@rx.page(route=routes.BIKES_ROUTE, title="Bikes", on_load=BikesState.load)
-def bikes() -> rx.Component:
-    return base_page(
+def bikes_section() -> rx.Component:
+    """The whole bikes block, dialogs included.
+
+    The dialogs are rendered here rather than by the page so that moving the
+    section never leaves its dialogs behind. They are portalled to the body by
+    Radix, so their position in the tree costs nothing.
+    """
+    return rx.vstack(
         rx.vstack(
-            rx.vstack(
-                rx.heading("Bikes", size="7"),
-                rx.text(
-                    "Sensor ANT+ ids are what match an imported ride to a bike.",
-                    size="2",
-                    color_scheme="gray",
-                ),
-                spacing="1",
-                align="start",
+            rx.heading("Bikes", size="5"),
+            rx.text(
+                "Sensor ANT+ ids are what match an imported ride to a bike.",
+                size="2",
+                color_scheme="gray",
             ),
-            rx.grid(
-                rx.foreach(BikesState.bikes, _bike_card),
-                _add_card(),
-                columns="2",
-                spacing="3",
-                width="100%",
-            ),
-            bike_dialog(),
-            confirm_dialog(
-                open=BikesState.confirm_open,
-                on_open_change=BikesState.set_confirm_open,
-                on_confirm=BikesState.confirm_delete,
-                title="Delete this bike?",
-                description=BikesState.delete_description,
-            ),
-            spacing="4",
-            width="100%",
+            spacing="1",
             align="start",
-        )
+        ),
+        rx.grid(
+            rx.foreach(BikesState.bikes, _bike_card),
+            _add_card(),
+            columns="2",
+            spacing="3",
+            width="100%",
+        ),
+        bike_dialog(),
+        confirm_dialog(
+            open=BikesState.confirm_open,
+            on_open_change=BikesState.set_confirm_open,
+            on_confirm=BikesState.confirm_delete,
+            title="Delete this bike?",
+            description=BikesState.delete_description,
+        ),
+        spacing="3",
+        width="100%",
+        align="start",
     )

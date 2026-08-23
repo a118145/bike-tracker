@@ -2,8 +2,9 @@
 
 ``fit.py`` is pure parsing, ``importer.py`` is the single entry point every
 source funnels through, and ``sources/`` holds the sources themselves. The
-Hammerhead poller lands in ``sources/hammerhead.py`` later and calls the same
-``import_ride`` — which is the whole reason the split exists.
+Hammerhead poller in ``sources/hammerhead.py`` calls the same ``import_ride``
+as the file source — which is the whole reason the split exists. The API
+client and the poll timer live here too, per brief §3.2.
 """
 
 from .fit import FitParseError, ParsedRide, name_from_filename, parse

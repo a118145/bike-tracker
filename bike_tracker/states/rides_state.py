@@ -9,7 +9,8 @@ string a card shows — the distance, the duration, the thumbnail geometry —
 has to exist before the frontend sees it.
 """
 
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 from typing import Any
 
 import reflex as rx
@@ -17,7 +18,7 @@ from sqlmodel import col, select
 
 from ..components.toast import notify_error, notify_info, notify_success, notify_warning
 from ..ingest.sources.file import import_bytes, scan_folder
-from ..models import Bike, Ride
+from ..models import EVAL_FTP, Bike, FitnessEval, Ride
 from ..navigation import routes
 from ..utils.formatting import (
     format_distance_km,
@@ -34,6 +35,20 @@ MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 
 @dataclass
+class RideEvalBadge:
+    """An evaluation this ride produced, as shown on its card.
+
+    Colours match the badges on the Power card in ride detail
+    (``components/ride_stats.py``) so the same evaluation looks the same
+    wherever you meet it. Only the label travels: the value belongs on the
+    detail page, and a 360 px card has no room for "FTP 285 W".
+    """
+
+    label: str = ""
+    color_scheme: str = ""
+
+
+@dataclass
 class RideCard:
     """One card in the rides list — everything pre-formatted for display."""
 
@@ -44,6 +59,11 @@ class RideCard:
     elevation_m: str = ""
     duration: str = ""
     bike_name: str = ""
+    # An explicit flag rather than comparing `bike_name` against the fallback
+    # string at the call site: that would couple the component to a default
+    # set here, and break silently if either changed.
+    bike_assigned: bool = False
+    evaluations: list[RideEvalBadge] = field(default_factory=list)
     preview_points: str = ""
     detail_href: str = ""
 
@@ -75,8 +95,13 @@ class RidesState(rx.State):
         with rx.session() as session:
             rides = session.exec(select(Ride).order_by(col(Ride.start_time).desc())).all()
             bike_names = {bike.id: bike.name for bike in session.exec(select(Bike)).all()}
+            # One query for the whole list, not one per card.
+            evaluations = session.exec(
+                select(FitnessEval).order_by(col(FitnessEval.created_at))
+            ).all()
 
-        self.rides = [_to_card(ride, bike_names) for ride in rides]
+        by_ride = group_evaluations(evaluations)
+        self.rides = [_to_card(ride, bike_names, by_ride) for ride in rides]
         log.info("rides.load", count=len(self.rides))
 
     @rx.event
@@ -153,15 +178,47 @@ class RidesState(rx.State):
             yield notify_success(f"Imported {created} new ride(s) from the drop folder.")
 
 
-def _to_card(ride: Ride, bike_names: dict[int | None, str]) -> RideCard:
+def group_evaluations(records: Sequence[FitnessEval]) -> dict[int, list[RideEvalBadge]]:
+    """Badges per ride id, for the whole list in one pass.
+
+    An evaluation with no ``ride_id`` — a hand-entered LTHR from the Fitness
+    page — belongs to no ride and is dropped here. Filtering in the query
+    instead would put the rule somewhere no test can reach it, and grouping
+    such a record under ``ride_id or 0`` would silently invent a ride.
+    """
+    grouped: dict[int, list[RideEvalBadge]] = {}
+    for record in records:
+        if record.ride_id is None:
+            continue
+        grouped.setdefault(record.ride_id, []).append(_to_badge(record))
+    return grouped
+
+
+def _to_badge(record: FitnessEval) -> RideEvalBadge:
+    """Same label and colour rule as ``ride_detail_state._load_badges``."""
+    if record.type == EVAL_FTP:
+        return RideEvalBadge(label="FTP", color_scheme="amber")
+    return RideEvalBadge(label="Baseline", color_scheme="teal")
+
+
+def _to_card(
+    ride: Ride,
+    bike_names: dict[int | None, str],
+    evaluations: dict[int, list[RideEvalBadge]],
+) -> RideCard:
     return RideCard(
         id=ride.id or 0,
         name=ride.name,
-        date=ride.start_time.strftime("%d %b %Y, %H:%M"),
+        # Date only. The card is 360 px and the date now shares the title row,
+        # so the time would cost the name a third of its width; it is still on
+        # the detail page.
+        date=ride.start_time.strftime("%d %b %Y"),
         distance_km=format_distance_km(ride.distance_m),
         elevation_m=format_number(ride.elevation_gain_m),
         duration=format_duration(ride.moving_time_s),
         bike_name=bike_names.get(ride.bike_id, "Unassigned"),
+        bike_assigned=ride.bike_id in bike_names,
+        evaluations=evaluations.get(ride.id or 0, []),
         preview_points=ride.preview_points,
         detail_href=f"{routes.RIDES_ROUTE}/{ride.id}",
     )

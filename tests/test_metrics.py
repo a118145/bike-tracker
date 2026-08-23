@@ -14,7 +14,8 @@ import numpy as np
 import pytest
 
 from bike_tracker import metrics
-from bike_tracker.metrics import geo  # noqa: F401  (for geo.TILE_SIZE_PX in the fit helpers)
+from bike_tracker.metrics import geo
+from bike_tracker.metrics.geo import EARTH_RADIUS_M
 
 # ---------------------------------------------------------------------------
 # Array helpers
@@ -656,3 +657,175 @@ def test_effort_windows_reject_nonsense_spans() -> None:
         metrics.best_effort_windows([], window_days=30, now=datetime(2026, 6, 1), max_windows=0)
         == []
     )
+
+
+# ---------------------------------------------------------------------------
+# Route matching: the length-independence the fixed scorer must have
+# ---------------------------------------------------------------------------
+
+
+def _straight_track(length_km: float, points: int = 400) -> list[tuple[float, float]]:
+    """A due-north track of a given length, sampled at ``points`` vertices."""
+    span_deg = length_km * 1000 / (math.radians(1.0) * EARTH_RADIUS_M)
+    return [(48.0 + span_deg * i / (points - 1), 11.0) for i in range(points)]
+
+
+def _wobble(track: list[tuple[float, float]], metres: float) -> list[tuple[float, float]]:
+    """The same road, recorded by a receiver drifting sideways."""
+    deg = metres / (math.radians(1.0) * EARTH_RADIUS_M * math.cos(math.radians(48.0)))
+    return [(lat, lon + deg * math.sin(i / 5)) for i, (lat, lon) in enumerate(track)]
+
+
+@pytest.mark.parametrize("length_km", [6.0, 60.0, 200.0])
+def test_the_match_score_does_not_depend_on_route_length(length_km: float) -> None:
+    """The property the old scorer violated, and the whole bug in one line.
+
+    Probes used to be compared against 200 resampled *vertices* of the other
+    track, so vertex spacing was ``length / 199`` — 31 m at 6 km but 1070 m at
+    200 km. A point lying exactly on the route then sat up to half a spacing
+    from the nearest vertex, so the effective tolerance grew with length and
+    above ~24 km nothing matched. Same shape, same noise, same answer, at every
+    scale.
+    """
+    track = _straight_track(length_km)
+    assert metrics.route_match_score(track, _wobble(track, 30.0)) > 0.95
+
+
+def test_a_hundred_kilometre_route_matches_its_own_repeat() -> None:
+    """The live symptom: two recordings of one 98 km loop scored 0.66."""
+    track = _straight_track(100.0)
+    assert metrics.route_match_score(track, _wobble(track, 30.0)) > 0.9
+
+
+@pytest.mark.parametrize("length_km", [6.0, 60.0])
+def test_probes_keep_a_constant_spacing_whatever_the_length(length_km: float) -> None:
+    """What the derived probe count is actually for.
+
+    It is *not* what fixed the length dependence — measuring to segments rather
+    than to vertices did that, and this scorer returns the same answer at any
+    probe count on a track it follows exactly. The count governs how finely
+    each track is examined, so a short deviation is as likely to be noticed on
+    a 60 km ride as on a 6 km one. A fixed count would make that resolution
+    proportional to length.
+    """
+    track = _straight_track(length_km)
+    spacing = metrics.polyline_length_m(track) / (geo._probe_count(track) - 1)
+    assert spacing == pytest.approx(geo.MATCH_PROBE_SPACING_M, rel=0.05)
+
+
+def test_the_probe_count_is_capped_on_a_very_long_tour() -> None:
+    """The cap trades resolution for cost on a 200 km ride, deliberately —
+    scoring is a few hundred milliseconds and an import does it repeatedly."""
+    track = _straight_track(200.0)
+    assert geo._probe_count(track) == geo.MAX_MATCH_PROBES
+    spacing = metrics.polyline_length_m(track) / (geo._probe_count(track) - 1)
+    assert spacing > geo.MATCH_PROBE_SPACING_M
+
+
+def test_a_deviation_shows_up_however_long_the_route_is() -> None:
+    """The same 2 km detour costs the same score at 20 km and at 100 km,
+    relative to its share of the ride."""
+    for length_km in (20.0, 100.0):
+        track = _straight_track(length_km, points=2000)
+        cut = len(track) // 2
+        detour_deg = 300 / (math.radians(1.0) * EARTH_RADIUS_M * math.cos(math.radians(48.0)))
+        share = 0.02 / (length_km / 100)  # a 2 km detour, as a fraction
+        span = max(int(len(track) * share / 2), 2)
+        detoured = [
+            (lat, lon + detour_deg) if cut <= i < cut + span else (lat, lon)
+            for i, (lat, lon) in enumerate(track)
+        ]
+        score = metrics.route_match_score(track, detoured)
+        assert 0.90 < score < 1.0, f"{length_km} km: {score}"
+
+
+def test_a_probe_between_two_coarse_vertices_still_counts_as_on_route() -> None:
+    """Distance is to the polyline, not to its vertices.
+
+    The comparison track is deliberately described by just its two endpoints:
+    every probe in between is kilometres from either vertex and zero metres
+    from the segment joining them.
+    """
+    track = _straight_track(50.0)
+    two_points = [track[0], track[-1]]
+    assert metrics.route_match_score(track, two_points) > 0.95
+
+
+def test_matching_survives_a_track_with_a_repeated_point() -> None:
+    """A stationary pause emits coincident samples; a zero-length segment must
+    not divide by zero."""
+    track = _straight_track(10.0, points=50)
+    stalled = track[:25] + [track[24]] * 3 + track[25:]
+    assert metrics.route_match_score(track, stalled) > 0.9
+
+
+# ---------------------------------------------------------------------------
+# Loops and direction
+# ---------------------------------------------------------------------------
+
+
+def test_a_track_returning_to_its_start_is_a_loop() -> None:
+    out = _straight_track(20.0, points=100)
+    assert metrics.is_loop(out + out[::-1])
+    assert not metrics.is_loop(out)
+
+
+def test_the_loop_margin_is_the_boundary() -> None:
+    """500 m of slop, so parking round the corner does not change the answer."""
+    deg_per_m = 1.0 / (math.radians(1.0) * EARTH_RADIUS_M)
+    near = [(48.0, 11.0), (48.1, 11.0), (48.0 + 400 * deg_per_m, 11.0)]
+    far = [(48.0, 11.0), (48.1, 11.0), (48.0 + 700 * deg_per_m, 11.0)]
+    assert metrics.is_loop(near)
+    assert not metrics.is_loop(far)
+
+
+def test_a_point_to_point_ride_in_reverse_is_the_opposite_direction() -> None:
+    """The commute case: out climbs the hill, back descends it."""
+    out = _straight_track(11.0, points=100)
+    assert metrics.opposite_directions(out, out[::-1])
+
+
+def test_the_same_commute_twice_is_not_the_opposite_direction() -> None:
+    out = _straight_track(11.0, points=100)
+    assert not metrics.opposite_directions(out, _wobble(out, 30.0))
+
+
+def test_a_loop_has_no_direction_to_disagree_about() -> None:
+    """A loop ridden anticlockwise is the same route, by Arne's rule.
+
+    The loop deliberately ends 400 m short of its start — inside the margin,
+    but far enough that the endpoint arithmetic *would* call it reversed. A
+    perfectly closed loop proves nothing here: both pairings measure zero.
+    """
+    deg_per_m = 1.0 / (math.radians(1.0) * EARTH_RADIUS_M)
+    out = _straight_track(20.0, points=100)
+    loop = out + out[::-1][:-1] + [(48.0 + 400 * deg_per_m, 11.0)]
+
+    assert metrics.is_loop(loop), "the fixture must be inside the loop margin"
+    assert not metrics.opposite_directions(loop, loop[::-1])
+
+
+# ---------------------------------------------------------------------------
+# The candidate gate
+# ---------------------------------------------------------------------------
+
+
+def test_bbox_overlap_rejects_tracks_that_are_nowhere_near_each_other() -> None:
+    here = [(48.0, 11.0), (48.1, 11.1)]
+    far = [(52.0, 13.0), (52.1, 13.1)]
+    assert metrics.bbox_overlap(here, far) == 0.0
+
+
+def test_bbox_overlap_keeps_a_short_ride_inside_a_long_one() -> None:
+    """Measured against the smaller box on purpose: containment must reach the
+    real scorer rather than being gated out before it is ever looked at."""
+    long_track = [(48.0, 11.0), (48.4, 11.4)]
+    short_track = [(48.1, 11.1), (48.2, 11.2)]
+    assert metrics.bbox_overlap(long_track, short_track) == pytest.approx(1.0)
+
+
+def test_bbox_overlap_handles_a_track_with_no_area() -> None:
+    """A due-north track spans no longitude, so the box has zero area."""
+    line = [(48.0, 11.0), (48.2, 11.0)]
+    assert metrics.bbox_overlap(line, [(48.1, 11.0), (48.3, 11.0)]) == 1.0
+    assert metrics.bbox_overlap(line, [(52.0, 13.0), (52.2, 13.0)]) == 0.0

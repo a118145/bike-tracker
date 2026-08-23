@@ -369,6 +369,115 @@ advice. Read it before editing.
     `str | list[str]` because it supports multi-select; a single-select
     handler must accept both.
 
+34. **A remote source deduplicates on the source's own id, before it fetches
+    the bytes.** `import_ride` already refuses a duplicate by `fit_hash` — but
+    only once a megabyte is on the wire. `sources/hammerhead` queries the
+    `Ride.external_id` set first, so a poll over 200 known rides is one
+    request instead of 201.
+
+    The half that is easy to miss: **a ride imported by hand before the API
+    was connected has no `external_id`, so it is never in that set.** When
+    `import_ride` returns `created=False` because the hash matched, the
+    poller stamps the activity id onto the existing ride (`_adopt`). Without
+    that it is re-downloaded on every poll for ever, silently — the ride table
+    looks perfect and only the traffic shows it. `source` is deliberately
+    *not* rewritten: the ride really did arrive as a file.
+
+    So the tests assert against the fake server's **request log**, not the
+    ride count. A test on the ride count passes either way, which is exactly
+    how this bug would survive.
+
+35. **Credentials come from the environment; only rotating tokens are
+    stored.** `HAMMERHEAD_CLIENT_ID` / `_CLIENT_SECRET` / `_REDIRECT_URI` are
+    read by `ClientCredentials.from_env` and appear in no form field, no state
+    var and no table. The access and refresh tokens live on
+    `HammerheadAccount` because they change; the UI shows *that* they exist
+    and when they expire, never their values.
+
+    `from_env` returns `None` rather than raising, so Settings renders a
+    "not configured" card instead of a traceback.
+
+    **A rotated refresh token must be persisted the moment it is minted** —
+    hence `HammerheadClient(on_token_refresh=...)`. Hammerhead may return a
+    new one on every exchange; a client that forgets it works for fourteen
+    hours and then fails with a message that explains nothing.
+
+36. **`HammerheadAuthError` and `HammerheadApiError` are separate types, and
+    the whole failure policy hangs off the distinction.** Auth is
+    unrecoverable and switches the poller off (`enabled = False`), because
+    retrying a revoked token every 15 minutes for ever is how a user never
+    finds out why nothing imports. Anything else is transient and simply waits
+    for the next tick. Conflating them either hammers the API or disables the
+    poller because Hammerhead had a bad minute.
+
+    Per-activity failures are recorded and the loop continues, as
+    `scan_folder` already does for the drop folder — one corrupt FIT file
+    costs that ride, not the other forty. The one exception is an auth failure
+    *mid-download*: it aborts, because every remaining download would fail
+    identically.
+
+37. **The poll cursor only advances when the window was finished.** A run cut
+    short by `MAX_DOWNLOADS_PER_RUN` leaves `cursor_date` alone, or the rides
+    it did not reach are skipped permanently. And when it does advance, it
+    steps back `CURSOR_OVERLAP_DAYS`: the Karoo uploads when it finds wifi, so
+    an activity can appear with a `createdAt` behind the watermark. Re-listing
+    a few days costs one request and rule 34's id filter discards them.
+
+    Pin the overlap with a **written-out date**, never one computed from
+    `CURSOR_OVERLAP_DAYS` — an expectation derived from the constant it pins
+    passes at every value, zero included.
+
+
+38. **Route matching measures distance to a polyline's *segments*, never to
+    its vertices.** Measured to vertices, the smallest achievable distance is
+    half the vertex spacing — so with a fixed probe count the spacing is
+    `length / probes` and the effective tolerance grows with route length.
+    That is the bug that produced 72 routes for 88 rides: a 6 km commute
+    matched at 31 m spacing while two recordings of one 62 km loop scored
+    0.365 against a true similarity of 0.987, and nothing above ~24 km could
+    match at all.
+
+    `_probe_count` is a *spacing* (`MATCH_PROBE_SPACING_M`), not a count. It
+    governs how thoroughly a track is examined, and is a separate concern from
+    the tolerance — do not collapse the two back together.
+
+    The guard is `tests/test_metrics.py::test_the_match_score_does_not_depend_on_route_length`,
+    which runs the same shape at 6, 60 and 200 km. Verified to fail at 60 km
+    and 200 km, and pass at 6 km, when segment distance is reverted — which is
+    exactly how the bug presented.
+
+39. **Direction matters for a point-to-point ride and not for a loop.** A
+    commute that climbs a hill on the way out descends it on the way back, and
+    averaging the two describes neither; a loop ridden anticlockwise is the
+    same route. `is_loop` (start and end within `LOOP_MARGIN_M`) decides which
+    rule applies, and `opposite_directions` pairs the endpoints both ways and
+    takes the closer pairing — no absolute threshold, so a ride that started a
+    few streets early is unaffected.
+
+    Both live in `metrics/geo.py` and **stay out of `route_match_score`**,
+    which means geometric similarity and nothing else. The policy belongs in
+    `assign_route`, next to the threshold.
+
+    Test a loop that ends *near* but not *at* its start. A perfectly closed
+    loop proves nothing: both endpoint pairings measure zero, so the guard
+    passes whether or not it is there.
+
+40. **Score only candidates that survive a cheap gate.** `route_match_score`
+    costs a few hundred milliseconds and `assign_route` runs against every
+    route there is. Reject on length ratio and `bbox_overlap` first — measured
+    on 88 real rides, that keeps 9% of pairs and excludes no true match.
+    `bbox_overlap` is relative to the *smaller* box, so a short ride inside a
+    long one still reaches the real scorer.
+
+41. **Routes are derived, so a matcher change makes them stale.**
+    `ingest/backfill.py --routes` deletes every route and replays
+    `assign_route` over all rides **oldest first**, so a route is established
+    and named by the first time it was ridden. This cannot reuse import order:
+    the Hammerhead poller works newest-first, so route names would come from
+    the most recent ride of each group. Rides, laps and streams are never
+    touched. It is idempotent — verify by running it twice.
+
+
 ## Type checking
 
 `mypy .` is strict everywhere except `components/` and `pages/`, where several

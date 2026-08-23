@@ -19,6 +19,13 @@ from .fitness import (
     METHOD_WINDOW,
     FitnessEval,
 )
+from .hammerhead import (
+    DEFAULT_BACKFILL_DAYS,
+    DEFAULT_POLL_INTERVAL_MIN,
+    HammerheadAccount,
+    get_account,
+    now_utc,
+)
 from .metric_fields import LOAD_SOURCE_HR, LOAD_SOURCE_POWER, MetricFields
 from .ride import (
     Lap,
@@ -29,6 +36,8 @@ from .ride import (
 from .route import Route, RouteForm
 
 __all__ = [
+    "DEFAULT_BACKFILL_DAYS",
+    "DEFAULT_POLL_INTERVAL_MIN",
     "EVAL_BASELINE",
     "EVAL_FTP",
     "EVAL_LTHR",
@@ -43,6 +52,7 @@ __all__ = [
     "BikeForm",
     "BikeSensor",
     "FitnessEval",
+    "HammerheadAccount",
     "Lap",
     "MetricFields",
     "Ride",
@@ -50,4 +60,6 @@ __all__ = [
     "RideStream",
     "Route",
     "RouteForm",
+    "get_account",
+    "now_utc",
 ]

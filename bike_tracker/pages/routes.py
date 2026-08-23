@@ -42,10 +42,28 @@ def _route_card(route: RouteCard) -> rx.Component:
             route_preview_svg(route.preview_points, size="64px"),
             rx.vstack(
                 rx.hstack(
-                    rx.heading(route.name, size="3", white_space="nowrap", overflow="hidden"),
+                    rx.heading(
+                        route.name,
+                        size="3",
+                        white_space="nowrap",
+                        overflow="hidden",
+                        # Ellipsis rather than a clip mid-character; the date
+                        # and pencil beside it do not shrink, so it is the name
+                        # that gives way. Same treatment as the ride card.
+                        text_overflow="ellipsis",
+                    ),
+                    rx.spacer(),
+                    rx.text(
+                        route.last_ridden,
+                        size="1",
+                        color_scheme="gray",
+                        white_space="nowrap",
+                        flex_shrink="0",
+                    ),
                     # The pencil belongs against the name it edits, not adrift
-                    # at the far edge of the card. At 360 px the badge below
-                    # wraps under this row, which keeps the pairing obvious.
+                    # at the far edge of the card — the date now sits between
+                    # them, but the row is still "what this route is called and
+                    # when you last rode it", with its one action at the end.
                     #
                     # `.stop_propagation` works here only because the card is a
                     # box with an `on_click`; inside an `rx.link` it would halt
@@ -56,19 +74,14 @@ def _route_card(route: RouteCard) -> rx.Component:
                         color_scheme="gray",
                         title="Rename route",
                         on_click=RoutesState.open_rename(route.id).stop_propagation,
+                        flex_shrink="0",
                     ),
                     align="center",
-                    spacing="1",
+                    spacing="2",
                     width="100%",
                     min_width="0",
                 ),
-                rx.hstack(
-                    rx.badge(route.ride_summary, variant="soft", color_scheme="gray"),
-                    rx.text(route.last_ridden, size="1", color_scheme="gray"),
-                    spacing="2",
-                    align="center",
-                    wrap="wrap",
-                ),
+                rx.badge(route.ride_summary, variant="soft", color_scheme="gray"),
                 rx.hstack(
                     _figure(route.distance_km, "km", "Dist"),
                     _figure(route.elevation_m, "m", "Asc"),

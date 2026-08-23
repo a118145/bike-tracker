@@ -7,8 +7,15 @@ requires-python = ">=3.12"
 dependencies = [
     "apscheduler>=3.11.3",
     "fitdecode>=0.11.0",
+    # Already installed as a transitive dependency of reflex, but the
+    # Hammerhead client imports it directly.
+    "httpx>=0.28",
     "numpy>=2.5.2",
     "plotly>=6.9.0",
+    # Required for `env_file` in rxconfig.py to do anything. Reflex calls
+    # load_dotenv only if this is importable, and otherwise just prints a
+    # warning — so without it a `.env` is silently ignored.
+    "python-dotenv>=1.1.0",
     "reflex[db]>=0.9.8",
     "structlog>=26.1.0",
 ]
@@ -67,7 +74,7 @@ follow_untyped_imports = true
 # "does not explicitly export" error without catching anything real. Treat them
 # as Any at the boundary instead — the figures they produce are handed straight
 # to rx.plotly and are never inspected by our own code.
-module = ["plotly.*", "fitdecode.*"]
+module = ["plotly.*", "fitdecode.*", "apscheduler.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

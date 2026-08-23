@@ -11,6 +11,7 @@ Rules that hold for every state in this package:
 from .bikes_state import BikesState
 from .dashboard_state import DashboardState
 from .fitness_state import FitnessState
+from .hammerhead_state import HammerheadState
 from .ride_detail_state import RideDetailState
 from .rides_state import RidesState
 from .route_detail_state import RouteDetailState
@@ -20,6 +21,7 @@ __all__ = [
     "BikesState",
     "DashboardState",
     "FitnessState",
+    "HammerheadState",
     "RideDetailState",
     "RidesState",
     "RouteDetailState",
