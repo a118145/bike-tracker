@@ -14,10 +14,11 @@ The page has no nav entry of its own; ``NavState.active_route`` resolves
 
 import reflex as rx
 
+from ..components.fitness_dialog import fitness_dialog, fitness_menu
 from ..components.hover_cursor import hover_cursor_bridge
 from ..components.lap_bars import lap_bars
-from ..components.map_view import empty_map, route_map
-from ..components.ride_chart import ride_chart
+from ..components.map_view import map_slot
+from ..components.ride_chart import chart_skeleton, ride_chart
 from ..components.ride_stats import ride_stat_cards
 from ..components.route_dialog import route_dialog
 from ..navigation import routes
@@ -92,8 +93,18 @@ def _selector(
 def _header() -> rx.Component:
     return rx.hstack(
         rx.vstack(
-            rx.heading(RideDetailState.title, size="7"),
-            rx.text(RideDetailState.subtitle, size="2", color_scheme="gray"),
+            # Skeletons rather than the text: on a client-side navigation the
+            # page first renders with the *previous* ride's title, because
+            # Reflex does not reset state and the new data is a round-trip
+            # away. See RideDetailState.stale.
+            rx.skeleton(
+                rx.heading(RideDetailState.title, size="7"),
+                loading=RideDetailState.stale,
+            ),
+            rx.skeleton(
+                rx.text(RideDetailState.subtitle, size="2", color_scheme="gray"),
+                loading=RideDetailState.stale,
+            ),
             spacing="1",
             align="start",
         ),
@@ -113,6 +124,7 @@ def _header() -> rx.Component:
                 RideDetailState.set_route,
                 "Route",
             ),
+            fitness_menu(),
             spacing="4",
             align="center",
             wrap="wrap",
@@ -127,7 +139,11 @@ def _header() -> rx.Component:
 def _chart() -> rx.Component:
     return rx.card(
         rx.vstack(
-            ride_chart(RideDetailState.chart_figure),
+            rx.cond(
+                RideDetailState.stale,
+                chart_skeleton(),
+                ride_chart(RideDetailState.chart_figure),
+            ),
             lap_bars(),
             spacing="3",
             width="100%",
@@ -139,17 +155,19 @@ def _chart() -> rx.Component:
 def _found() -> rx.Component:
     return rx.vstack(
         _header(),
-        rx.cond(
-            RideDetailState.has_track,
-            route_map(RideDetailState.map_figure),
-            empty_map(),
+        map_slot(
+            RideDetailState.map_figure,
+            loading=RideDetailState.stale,
+            has_track=RideDetailState.has_track,
+            record_key=RideDetailState.map_key,
         ),
         _chart(),
-        ride_stat_cards(),
+        rx.skeleton(ride_stat_cards(), loading=RideDetailState.stale),
         # Picking "Create new" from the route dropdown makes a route and hands
         # straight to this dialog, so it has to be mounted here as well as on
         # the routes list.
         route_dialog(),
+        fitness_dialog(),
         spacing="4",
         align="start",
         width="100%",

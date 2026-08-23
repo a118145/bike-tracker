@@ -18,10 +18,10 @@ into *every* state class. It must not be declared as a field — that raises
 
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import plotly.graph_objects as go
 import reflex as rx
 from sqlmodel import col, select
 
@@ -29,20 +29,39 @@ from .. import metrics
 from ..components.map_view import (
     STYLE_LIGHT,
     MapMarker,
-    MapTrace,
+    blank_map_figure,
     build_map_figure,
+    ride_map_traces,
 )
 from ..components.ride_chart import (
     CHANNEL_SPECS,
+    EVAL_CHART_CHANNELS,
     ChartData,
     build_chart_figure,
     chart_indices,
 )
 from ..components.toast import notify_error, notify_success
 from ..ingest import streams
-from ..ingest.importer import create_manual_route, refresh_route_stats
+from ..ingest.importer import (
+    create_manual_route,
+    refresh_ftp_dependent,
+    refresh_route_stats,
+)
 from ..metrics import Point
-from ..models import Bike, Lap, MetricFields, Ride, RideStream, Route
+from ..models import (
+    EVAL_BASELINE,
+    EVAL_FTP,
+    METHOD_BEST_FIT,
+    METHOD_LAP,
+    METHOD_WINDOW,
+    Bike,
+    FitnessEval,
+    Lap,
+    MetricFields,
+    Ride,
+    RideStream,
+    Route,
+)
 from ..utils.formatting import (
     EMPTY,
     format_balance,
@@ -52,16 +71,19 @@ from ..utils.formatting import (
     format_speed_kmh,
 )
 from ..utils.logging import get_logger
+from ..utils.plotly_json import figure_to_dict
 from .routes_state import NEW_ROUTE_NAME, RoutesState
 
 log = get_logger(__name__).bind(state="RideDetailState")
 
-TRACK_COLOUR = "#2563eb"
-TRACK_DIMMED = "#94a3b8"
 
 # Douglas-Peucker tolerance for what the map draws. Tighter than the stored
 # route geometry because this is the ride itself at full zoom.
 MAP_SIMPLIFY_EPSILON_M = 8.0
+
+# The dialog is 32em wide; a chart much taller than this crowds the controls
+# above it out of view on a laptop screen.
+EVAL_CHART_HEIGHT_PX = 170
 
 
 def _thin(points: list[Point]) -> list[Point]:
@@ -81,6 +103,20 @@ class LapBar:
 
 
 @dataclass
+class FitnessBadge:
+    """One saved evaluation, as shown beside the Power card's heading.
+
+    Pre-formatted, like every other view model here: badges render inside
+    ``rx.foreach``, where no per-item Python runs.
+    """
+
+    id: int = 0
+    kind: str = ""  # EVAL_FTP or EVAL_BASELINE
+    label: str = ""  # "FTP" / "Baseline"
+    value_text: str = ""  # "285 W" / "1.85 W/bpm"
+
+
+@dataclass
 class SelectOption:
     """One entry in the bike or route dropdown."""
 
@@ -96,9 +132,26 @@ class RideDetailState(rx.State):
     title: str = ""
     subtitle: str = ""
 
+    # True while `load` is still assembling the page. Gates the plots and the
+    # text behind skeletons; see the comment in `load`. Defaults to True so a
+    # cold page paints the skeleton rather than flashing "No GPS track".
+    loading: bool = True
+    # Which record the data below actually belongs to. Compared against the
+    # router's `ride_id` so the page shows a placeholder instead of the
+    # previous ride while a navigation is in flight.
+    loaded_id: str = ""
     has_track: bool = False
-    map_figure: go.Figure = go.Figure()
-    chart_figure: go.Figure = go.Figure()
+    # Serialised figures, not `go.Figure`: Reflex's own figure serializer
+    # strips every trace uid. See utils/plotly_json.
+    map_figure: dict = figure_to_dict(blank_map_figure(STYLE_LIGHT))
+    chart_figure: dict = {}
+    # React key for the map plot. Changes with the ride and *only* with the
+    # ride: a lap selection must stay an in-place update. See map_view.route_map.
+    map_key: str = "ride-none"
+    # The dialog's own small chart. The big one behind is covered by the
+    # dialog and dimmed by its overlay, so the evaluated window is shown here
+    # instead — see components/fitness_dialog.
+    eval_chart_figure: dict = {}
 
     stats: dict[str, str] = {}
     active_channels: list[str] = []
@@ -112,6 +165,29 @@ class RideDetailState(rx.State):
     bike_value: str = ""
     route_value: str = ""
 
+    # --- fitness evaluation (masterplan §2.4.2) ---------------------------
+    # Saved evaluations for this ride, shown as badges on the Power card.
+    fitness_badges: list[FitnessBadge] = []
+
+    eval_open: bool = False
+    eval_editing_id: int | None = None
+    eval_form_key: int = 0
+    eval_type: str = EVAL_FTP
+    eval_method: str = METHOD_WINDOW
+    # Percent of ride duration. A two-thumb slider on one track, per §2.4.2 —
+    # rx.slider's `value` takes a sequence, so this is one control, not two.
+    eval_window: list[float] = [0.0, 100.0]
+    # Single thumb: where the user thinks the effort was, for best fit.
+    eval_guess: list[float] = [50.0]
+    eval_lap: str = "0"
+    eval_result_text: str = ""
+    eval_detail_text: str = ""
+    eval_error: str = ""
+    # Absolute seconds of the evaluated window, kept so the chart can shade it
+    # and so saving does not recompute the boundaries a second time.
+    _eval_span: tuple[float, float] | None = None
+    _eval_value: float | None = None
+
     # Raw channels for the currently loaded ride, kept off the wire. Private
     # (underscore) vars are never serialised to the client, which matters here:
     # these are the full-resolution streams.
@@ -119,6 +195,18 @@ class RideDetailState(rx.State):
     _time_s: list[float] = []
     _lap_bounds: list[tuple[float, float]] = []
     _lap_slices: list[tuple[int, int]] = []
+
+    @rx.var
+    def stale(self) -> bool:
+        """True while what is on screen may belong to another ride.
+
+        Two terms. `loading` covers the work `load` is doing. The id
+        comparison covers the window before `load` has even started: Reflex
+        does not reset state on client-side navigation, so the page first
+        renders with the previous ride's title, stats and figure. Whichever
+        delta lands first flips this.
+        """
+        return self.loading or self.loaded_id != self.ride_id
 
     @rx.var
     def lap_count(self) -> int:
@@ -136,33 +224,94 @@ class RideDetailState(rx.State):
         return f"Lap {self.selected_lap + 1}"
 
     # ------------------------------------------------------------------
+    # Fitness evaluation — derived
+    # ------------------------------------------------------------------
+
+    @rx.var
+    def can_evaluate_ftp(self) -> bool:
+        """An FTP test needs a power meter. Without one the menu item is dead."""
+        return "power" in self.available_channels
+
+    @rx.var
+    def can_evaluate_baseline(self) -> bool:
+        """W/bpm needs both halves of the ratio."""
+        return "power" in self.available_channels and "hr" in self.available_channels
+
+    @rx.var
+    def eval_is_ftp(self) -> bool:
+        return self.eval_type == EVAL_FTP
+
+    @rx.var
+    def eval_dialog_title(self) -> str:
+        kind = "FTP" if self.eval_type == EVAL_FTP else "Baseline"
+        return f"Edit {kind} evaluation" if self.eval_editing_id is not None else f"Evaluate {kind}"
+
+    @rx.var
+    def eval_submit_label(self) -> str:
+        return "Save changes" if self.eval_editing_id is not None else "Save"
+
+    @rx.var
+    def eval_method_is_window(self) -> bool:
+        return self.eval_method == METHOD_WINDOW
+
+    @rx.var
+    def eval_method_is_lap(self) -> bool:
+        return self.eval_method == METHOD_LAP
+
+    @rx.var
+    def eval_method_is_best_fit(self) -> bool:
+        return self.eval_method == METHOD_BEST_FIT
+
+    @rx.var
+    def eval_window_label(self) -> str:
+        """The chosen window as clock times, so the percentages mean something."""
+        if self._eval_span is None:
+            return "—"
+        start_s, end_s = self._eval_span
+        return f"{format_duration(start_s)} to {format_duration(end_s)}"
+
+    @rx.var
+    def eval_lap_options(self) -> list[SelectOption]:
+        return [SelectOption(value=str(bar.index), label=f"Lap {bar.label}") for bar in self.laps]
+
+    @rx.var
+    def eval_has_result(self) -> bool:
+        return self._eval_value is not None
+
+    # ------------------------------------------------------------------
     # Loading
     # ------------------------------------------------------------------
 
     @rx.event
     def load(self):
         """Page ``on_load`` — fetch the ride and rebuild every derived view."""
-        # Unmount the map before touching the database.
+        # Unmount both plots before touching the database.
         #
         # Reflex does not reset state on client-side navigation, so arriving
-        # from another route this still holds the *previous* one's figure and
-        # `has_track=True`. React would therefore mount the plot immediately
-        # with the stale figure, MapLibre would start fetching the basemap
-        # style, and the `on_load` delta would land mid-fetch. Plotly's
-        # `updateMap` only waits for the style when the style *string* changes
-        # — it is "carto-positron" both times — so it goes straight to
-        # `addSource` and MapLibre throws "Style is not done loading."
+        # from another route this still holds the *previous* one's figures.
+        # React would mount the plot immediately with the stale figure,
+        # MapLibre would start fetching the basemap style, and the `on_load`
+        # delta would land mid-fetch. Plotly's `updateMap` only waits for the
+        # style when the style *string* changes — it is "carto-positron" both
+        # times — so it goes straight to `addSource` and MapLibre throws
+        # "Style is not done loading."
         #
         # That throw is not recoverable: the rejected promise stays in
         # `gd._promises` forever, and `Plots.previousPromises` is the first
-        # step of every later plot, so the div never redraws again. Hence the
-        # stale map that only a full remount fixed.
+        # step of every later plot, so the div never redraws again.
         #
-        # Clearing the flag and yielding sends it as its own delta, which
-        # unmounts the plot (running `Plotly.purge`, clearing `_promises`) so
-        # the next mount coincides with the final figure and is gated on the
-        # style `load` event.
-        self.has_track = False
+        # Raising the flag and yielding sends it as its own delta, which swaps
+        # the plots for skeletons (running `Plotly.purge`, clearing
+        # `_promises`) so the next mount coincides with the final figure and
+        # goes through `createMap`, which *does* wait for the style.
+        #
+        # This is a UX affordance and a best-effort unmount, not the
+        # guarantee. Two deltas that arrive close together are committed by
+        # React as one, so the skeleton frame may never render and nothing
+        # unmounts. What actually makes a cross-record figure safe is the
+        # React key on the plot (`map_key`); what makes a same-record re-plot
+        # safe is the stable trace uid set. See MapTrace and AGENTS.md 29/31.
+        self.loading = True
         yield
 
         self.not_found = False
@@ -200,6 +349,13 @@ class RideDetailState(rx.State):
         self._build_map(ride)
         self.stats = _stats(ride)
         self._rebuild_chart()
+        with rx.session() as badge_session:
+            self._load_badges(badge_session, ride_id)
+        # Last, and with no `yield` between here and the figures above, so the
+        # flag and the finished figures reach the client in one delta and the
+        # plot's first mount already holds the final figure.
+        self.loading = False
+        self.loaded_id = str(ride_id)
 
         log.info(
             "ride_detail.load",
@@ -308,32 +464,19 @@ class RideDetailState(rx.State):
         )
         self.has_track = len(points) >= 2
         if not self.has_track:
-            self.map_figure = go.Figure()
+            self.map_key = f"ride-{ride.id}"
+            self.map_figure = figure_to_dict(blank_map_figure(STYLE_LIGHT))
             return
 
         selected = self._selected_slice()
-        traces: list[MapTrace] = []
-        focus: list[Point] | None = None
-
-        if selected is None:
-            traces.append(
-                MapTrace(points=_thin(points), name=ride.name, color=TRACK_COLOUR, width=4.0)
-            )
-        else:
-            segment = _thin(points[selected[0] : selected[1]])
-            traces.append(
-                MapTrace(points=_thin(points), color=TRACK_DIMMED, width=3.0, opacity=0.35)
-            )
-            if len(segment) >= 2:
-                traces.append(
-                    MapTrace(
-                        points=segment,
-                        name=f"Lap {self.selected_lap + 1}",
-                        color=TRACK_COLOUR,
-                        width=5.0,
-                    )
-                )
-                focus = segment
+        segment = _thin(points[selected[0] : selected[1]]) if selected else []
+        focus: list[Point] | None = segment if len(segment) >= 2 else None
+        traces = ride_map_traces(
+            _thin(points),
+            segment=segment,
+            ride_name=ride.name,
+            lap_label=f"Lap {self.selected_lap + 1}",
+        )
 
         built = build_map_figure(
             traces,
@@ -345,7 +488,8 @@ class RideDetailState(rx.State):
             uirevision=f"{ride.id}:{self.selected_lap}",
             style=STYLE_LIGHT,
         )
-        self.map_figure = built.figure
+        self.map_key = f"ride-{ride.id}"
+        self.map_figure = figure_to_dict(built.figure)
 
     def _cursor_track(self) -> tuple[list[float], list[float]] | None:
         """Coordinates sampled at exactly the chart's plotted indices.
@@ -386,6 +530,9 @@ class RideDetailState(rx.State):
                 continue
             markers.append(
                 MapMarker(
+                    # Keyed on the lap, not on the position in this list, so
+                    # the set is identical whatever is selected.
+                    uid=f"lap-marker-{lap_bar.index}",
                     point=points[i0],
                     label=lap_bar.label,
                     hover=f"Lap {lap_bar.label} · {lap_bar.distance_km} km · {lap_bar.duration}",
@@ -581,6 +728,299 @@ class RideDetailState(rx.State):
         routes_state.prepare_rename(route_id, route_name)
 
     # ------------------------------------------------------------------
+    # Fitness evaluation — dialog (masterplan §2.4.2)
+    # ------------------------------------------------------------------
+
+    @rx.event
+    def open_evaluation(self, kind: str):
+        """Start a new evaluation from the header dropdown."""
+        self.eval_editing_id = None
+        self.eval_type = kind
+        # Best fit is FTP-only; a baseline needs a window the rider actually
+        # held steady, which no search can guess.
+        self.eval_method = METHOD_WINDOW
+        self.eval_window = [0.0, 100.0]
+        self.eval_guess = [50.0]
+        self.eval_lap = "0"
+        self.eval_error = ""
+        self.eval_form_key += 1
+        self.eval_open = True
+        self._recompute_evaluation()
+
+    @rx.event
+    def open_evaluation_badge(self, eval_id: int):
+        """Reopen a saved evaluation from its badge on the Power card.
+
+        The method parameters were stored precisely so the dialog comes back
+        the way the user left it (masterplan §3.4).
+        """
+        with rx.session() as session:
+            found = session.get(FitnessEval, eval_id)
+            if found is None:
+                self._load_badges(session, int(self.ride_id))
+                return notify_error("That evaluation no longer exists.")
+
+            self.eval_editing_id = eval_id
+            self.eval_type = found.type
+            self.eval_method = found.method
+            self.eval_window = [
+                (found.start_frac if found.start_frac is not None else 0.0) * 100.0,
+                (found.end_frac if found.end_frac is not None else 1.0) * 100.0,
+            ]
+            self.eval_guess = [(found.guess_frac if found.guess_frac is not None else 0.5) * 100.0]
+            self.eval_lap = str(found.lap_index if found.lap_index is not None else 0)
+
+        self.eval_error = ""
+        self.eval_form_key += 1
+        self.eval_open = True
+        self._recompute_evaluation()
+        return None
+
+    @rx.event
+    def set_eval_open(self, value: bool):
+        """Bound to ``on_open_change`` so Escape and click-outside also clear."""
+        self.eval_open = value
+        if not value:
+            self.eval_error = ""
+            self._eval_span = None
+            self._eval_value = None
+            # Drop the figure rather than leave a stale one in state; the page
+            # chart behind was never shaded, so there is nothing to undo there.
+            self.eval_chart_figure = {}
+
+    @rx.event
+    def set_eval_type(self, value: str | list[str]):
+        # rx.segmented_control supports multi-select, so its on_change is typed
+        # `str | list[str]`. This one is single-select; take the first.
+        self.eval_type = _first_choice(value, self.eval_type)
+        if self.eval_type != EVAL_FTP and self.eval_method == METHOD_BEST_FIT:
+            self.eval_method = METHOD_WINDOW
+        self._recompute_evaluation()
+
+    @rx.event
+    def set_eval_method(self, value: str | list[str]):
+        self.eval_method = _first_choice(value, self.eval_method)
+        self._recompute_evaluation()
+
+    @rx.event
+    def set_eval_window(self, value: list[float]):
+        """Bound to ``on_value_commit``, not ``on_change``.
+
+        ``on_change`` fires continuously while a thumb is dragged; recomputing
+        there would round-trip and re-serialise the whole chart figure on every
+        mouse move — the cost ``components/hover_cursor.py`` exists to avoid.
+        """
+        self.eval_window = sorted(value)[:2] if len(value) >= 2 else self.eval_window
+        self._recompute_evaluation()
+
+    @rx.event
+    def set_eval_guess(self, value: list[float]):
+        self.eval_guess = value[:1] or self.eval_guess
+        self._recompute_evaluation()
+
+    @rx.event
+    def set_eval_lap(self, value: str):
+        self.eval_lap = value
+        self._recompute_evaluation()
+
+    def _evaluation_slice(self) -> tuple[int, int] | None:
+        """Sample range the current method selects, or None if unusable."""
+        time_s = np.asarray(self._time_s, dtype=np.float64)
+        if time_s.size < 2:
+            return None
+
+        if self.eval_method == METHOD_LAP:
+            index = int(self.eval_lap or 0)
+            if not 0 <= index < len(self._lap_slices):
+                return None
+            i0, i1 = self._lap_slices[index]
+            return (i0, i1) if i1 - i0 >= 2 else None
+
+        span_s = float(time_s[-1] - time_s[0])
+        origin = float(time_s[0])
+
+        if self.eval_method == METHOD_BEST_FIT:
+            # The window is found by the search, not by the slider; the slider
+            # only says roughly where to look.
+            power = np.asarray(self._channels.get("power", []), dtype=np.float64)
+            if power.size < 2:
+                return None
+            found = metrics.best_20min_window(power, guess_frac=self.eval_guess[0] / 100.0)
+            return (found.start_index, found.end_index) if found else None
+
+        start_pct, end_pct = self.eval_window[0], self.eval_window[1]
+        start_s = origin + span_s * min(start_pct, end_pct) / 100.0
+        end_s = origin + span_s * max(start_pct, end_pct) / 100.0
+        i0, i1 = metrics.window_indices(time_s, start_s, end_s)
+        return (i0, i1) if i1 - i0 >= 2 else None
+
+    def _recompute_evaluation(self) -> None:
+        """Recalculate the preview and shade the window on the chart."""
+        self._eval_value = None
+        self._eval_span = None
+        self.eval_result_text = EMPTY
+        self.eval_detail_text = ""
+        self.eval_error = ""
+
+        window = self._evaluation_slice()
+        if window is None:
+            self.eval_error = "That selection is too short to evaluate."
+            self._rebuild_eval_chart()
+            return
+
+        i0, i1 = window
+        time_s = np.asarray(self._time_s, dtype=np.float64)
+        self._eval_span = (float(time_s[i0]), float(time_s[i1 - 1]))
+
+        power = np.asarray(self._channels.get("power", []), dtype=np.float64)[i0:i1]
+        if self.eval_type == EVAL_FTP:
+            if power.size < 2:
+                self.eval_error = "This ride has no power data."
+            else:
+                avg = float(np.nanmean(np.nan_to_num(power, nan=0.0)))
+                self._eval_value = metrics.ftp_from_20min(avg)
+                self.eval_result_text = f"{format_number(self._eval_value)} W"
+                self.eval_detail_text = (
+                    f"{format_number(avg)} W average over "
+                    f"{format_duration(self._eval_span[1] - self._eval_span[0])}, scaled by 0.95"
+                )
+        else:
+            hr = np.asarray(self._channels.get("hr", []), dtype=np.float64)[i0:i1]
+            value = metrics.baseline(power, hr) if power.size and hr.size else None
+            if value is None:
+                self.eval_error = "This window has no paired power and heart rate."
+            else:
+                self._eval_value = value
+                self.eval_result_text = f"{format_number(value, 2)} W/bpm"
+                avg_hr = float(np.nanmean(hr))
+                self.eval_detail_text = (
+                    f"{format_number(float(np.nanmean(power)))} W at {format_number(avg_hr)} bpm"
+                )
+
+        self._rebuild_eval_chart()
+
+    @rx.event
+    def save_evaluation(self):
+        """Persist the evaluation and refresh every ride it affects."""
+        if self._eval_value is None or self._eval_span is None:
+            self.eval_error = "Nothing to save yet."
+            return None
+
+        with rx.session() as session:
+            ride = session.get(Ride, int(self.ride_id))
+            if ride is None:
+                self.eval_open = False
+                return notify_error("That ride no longer exists.")
+
+            # RideStream.time_s starts at the first *record*; Ride.start_time is
+            # the FIT session start. Without stream_offset_s the stored window
+            # is shifted by the difference — two seconds on the reference ride.
+            origin = ride.start_time.timestamp() + ride.stream_offset_s
+            start_at = datetime.fromtimestamp(origin + self._eval_span[0], tz=UTC)
+            end_at = datetime.fromtimestamp(origin + self._eval_span[1], tz=UTC)
+
+            record = (
+                session.get(FitnessEval, self.eval_editing_id)
+                if self.eval_editing_id is not None
+                else None
+            )
+            if record is None:
+                record = FitnessEval(valid_from=ride.start_time, ride_id=ride.id)
+                session.add(record)
+
+            record.type = self.eval_type
+            record.value = self._eval_value
+            # Masterplan §2.4.2: the entry is timestamped with the *start of the
+            # ride it was derived in*, which is what makes it apply to this ride
+            # as well as to later ones.
+            record.valid_from = ride.start_time
+            record.ride_id = ride.id
+            record.start_time = start_at
+            record.end_time = end_at
+            record.method = self.eval_method
+            record.start_frac = min(self.eval_window) / 100.0
+            record.end_frac = max(self.eval_window) / 100.0
+            record.lap_index = int(self.eval_lap or 0) if self.eval_method == METHOD_LAP else None
+            record.guess_frac = (
+                self.eval_guess[0] / 100.0 if self.eval_method == METHOD_BEST_FIT else None
+            )
+            session.commit()
+
+            kind = record.type
+            value = record.value
+            valid_from = record.valid_from
+            refresh_ftp_dependent(session, valid_from)
+            self._load_badges(session, int(self.ride_id))
+
+        log.info("ride_detail.eval.save", ride_id=self.ride_id, kind=kind, value=round(value, 2))
+        self.eval_open = False
+        self.eval_editing_id = None
+        self._eval_span = None
+        self._reload_metrics()
+        return notify_success(f"Saved {'FTP' if kind == EVAL_FTP else 'baseline'} evaluation.")
+
+    @rx.event
+    def delete_evaluation(self, eval_id: int):
+        """Remove an evaluation and put the affected rides back."""
+        with rx.session() as session:
+            record = session.get(FitnessEval, eval_id)
+            if record is None:
+                return notify_error("That evaluation no longer exists.")
+            valid_from = record.valid_from
+            session.delete(record)
+            session.commit()
+
+            refresh_ftp_dependent(session, valid_from)
+            self._load_badges(session, int(self.ride_id))
+
+        log.info("ride_detail.eval.delete", ride_id=self.ride_id, eval_id=eval_id)
+        if self.eval_editing_id == eval_id:
+            self.eval_open = False
+            self.eval_editing_id = None
+        self._reload_metrics()
+        return notify_success("Evaluation deleted.")
+
+    def _load_badges(self, session: Any, ride_id: int) -> None:
+        """The evaluations derived from this ride, for the Power card."""
+        found = session.exec(
+            select(FitnessEval)
+            .where(FitnessEval.ride_id == ride_id)
+            .order_by(col(FitnessEval.created_at))
+        ).all()
+        self.fitness_badges = [
+            FitnessBadge(
+                id=record.id or 0,
+                kind=record.type,
+                label="FTP" if record.type == EVAL_FTP else "Baseline",
+                value_text=(
+                    f"{format_number(record.value)} W"
+                    if record.type == EVAL_FTP
+                    else f"{format_number(record.value, 2)} W/bpm"
+                ),
+            )
+            for record in found
+            if record.type in (EVAL_FTP, EVAL_BASELINE)
+        ]
+
+    def _reload_metrics(self) -> None:
+        """Re-read the ride (and selected lap) after a load recompute.
+
+        Saving an evaluation rewrites intensity factor and TSS, so the stat
+        cards would otherwise keep showing the numbers from the old FTP.
+        """
+        with rx.session() as session:
+            ride = session.get(Ride, int(self.ride_id))
+            if ride is None:
+                return
+            if self.selected_lap < 0:
+                self.stats = _stats(ride)
+                return
+            lap = session.exec(
+                select(Lap).where(Lap.ride_id == ride.id).where(Lap.index == self.selected_lap)
+            ).first()
+            self.stats = _stats(lap) if lap else _stats(ride)
+
+    # ------------------------------------------------------------------
     # Chart
     # ------------------------------------------------------------------
 
@@ -590,17 +1030,42 @@ class RideDetailState(rx.State):
         if 0 <= self.selected_lap < len(self._lap_bounds):
             lap_span = self._lap_bounds[self.selected_lap]
 
-        self.chart_figure = build_chart_figure(
-            ChartData.from_channels(
-                time_s=np.asarray(self._time_s, dtype=np.float64),
-                altitude_m=np.asarray(self._channels.get("altitude", []), dtype=np.float64),
-                channels={
-                    key: np.asarray(values, dtype=np.float64)
-                    for key, values in self._channels.items()
-                },
-            ),
-            list(self.active_channels),
-            lap_span,
+        self.chart_figure = figure_to_dict(
+            build_chart_figure(
+                ChartData.from_channels(
+                    time_s=np.asarray(self._time_s, dtype=np.float64),
+                    altitude_m=np.asarray(self._channels.get("altitude", []), dtype=np.float64),
+                    channels={
+                        key: np.asarray(values, dtype=np.float64)
+                        for key, values in self._channels.items()
+                    },
+                ),
+                list(self.active_channels),
+                lap_span,
+            )
+        )
+
+    def _rebuild_eval_chart(self) -> None:
+        """The dialog's small chart, shading the window being evaluated.
+
+        Fixed channels: the stat cards do not drive this one and it carries no
+        toggles, so what it shows cannot drift with whatever the page behind
+        happens to have switched on.
+        """
+        self.eval_chart_figure = figure_to_dict(
+            build_chart_figure(
+                ChartData.from_channels(
+                    time_s=np.asarray(self._time_s, dtype=np.float64),
+                    altitude_m=np.asarray(self._channels.get("altitude", []), dtype=np.float64),
+                    channels={
+                        key: np.asarray(values, dtype=np.float64)
+                        for key, values in self._channels.items()
+                    },
+                ),
+                list(EVAL_CHART_CHANNELS),
+                self._eval_span,
+                height_px=EVAL_CHART_HEIGHT_PX,
+            )
         )
 
 
@@ -611,6 +1076,13 @@ NONE_OPTION = "__none__"
 # Second sentinel on the route dropdown: an action rather than a route.
 # Radix rejects "" as an item value, so both specials travel as sentinels.
 CREATE_ROUTE_OPTION = "__create__"
+
+
+def _first_choice(value: str | list[str], fallback: str) -> str:
+    """Single choice out of a segmented control's `str | list[str]` payload."""
+    if isinstance(value, list):
+        return value[0] if value else fallback
+    return value or fallback
 
 
 def _from_select(value: str) -> str:

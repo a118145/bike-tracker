@@ -49,6 +49,22 @@ def normalized_power(power: FloatArray, dt: float = 1.0, window_s: float = NP_WI
     return float(np.mean(averaged**4) ** 0.25)
 
 
+# FTP is 95% of the best 20-minute average power (masterplan §2.4.2). The
+# constant lives here rather than beside the FitnessEval model because it is
+# domain arithmetic, and `metrics/` is the layer that may be tested without an
+# app; `models/fitness.py` re-exports it for the existing public name.
+FTP_FROM_20MIN_FACTOR = 0.95
+
+
+def ftp_from_20min(avg_power_w: float) -> float:
+    """FTP implied by the best 20-minute average power.
+
+    The conventional 95% haircut. Applied here rather than at the call site so
+    the one number that turns a test effort into an FTP is written down once.
+    """
+    return max(0.0, avg_power_w) * FTP_FROM_20MIN_FACTOR
+
+
 def intensity_factor(np_w: float, ftp_w: float) -> float:
     """Normalized power as a fraction of FTP."""
     if ftp_w <= 0:

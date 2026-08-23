@@ -1,8 +1,8 @@
 """FIT parsing — bytes in, plain dataclasses out.
 
-No database, no Reflex, no models. The Hammerhead poller will land beside
-this module later and hand its downloaded bytes to the same :func:`parse`,
-so everything downstream stays source-agnostic.
+No database, no Reflex, no models. The Hammerhead poller hands its downloaded
+bytes to this same :func:`parse`, which is what keeps everything downstream
+source-agnostic.
 
 FIT stores coordinates as semicircles and speeds in m/s; both are normalised
 here so nothing further up the stack has to know the wire format.

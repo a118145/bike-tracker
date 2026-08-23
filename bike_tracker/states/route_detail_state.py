@@ -14,11 +14,17 @@ why ``load`` guards the ``int()``.
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import plotly.graph_objects as go
 import reflex as rx
 from sqlmodel import col, select
 
-from ..components.map_view import HEAT_COLOUR, MapTrace, build_map_figure
+from ..components.map_view import (
+    HEAT_COLOUR,
+    STYLE_LIGHT,
+    MapTrace,
+    blank_map_figure,
+    build_map_figure,
+    heat_opacity,
+)
 from ..models import Ride, Route
 from ..navigation import routes as route_urls
 from ..utils.formatting import (
@@ -29,6 +35,7 @@ from ..utils.formatting import (
     format_speed_kmh,
 )
 from ..utils.logging import get_logger
+from ..utils.plotly_json import figure_to_dict
 
 log = get_logger(__name__).bind(state="RouteDetailState")
 
@@ -62,12 +69,26 @@ class RouteDetailState(rx.State):
     title: str = ""
     subtitle: str = ""
 
+    # See RideDetailState.loading — same contract, one plot instead of two.
+    loading: bool = True
+    loaded_id: str = ""
     has_track: bool = False
-    map_figure: go.Figure = go.Figure()
+    # Serialised, not `go.Figure` — see utils/plotly_json.
+    map_figure: dict = figure_to_dict(blank_map_figure(STYLE_LIGHT))
+    # React key for the map plot — see map_view.route_map.
+    map_key: str = "route-none"
     truncated_note: str = ""
 
     stats: dict[str, str] = {}
     rides: list[RideRow] = []
+
+    @rx.var
+    def stale(self) -> bool:
+        """True while what is on screen may belong to another route.
+
+        See RideDetailState.stale.
+        """
+        return self.loading or self.loaded_id != self.route_id
 
     @rx.var
     def ride_count(self) -> int:
@@ -92,11 +113,15 @@ class RouteDetailState(rx.State):
         # step of every later plot, so the div never redraws again. Hence the
         # stale map that only a full remount fixed.
         #
-        # Clearing the flag and yielding sends it as its own delta, which
-        # unmounts the plot (running `Plotly.purge`, clearing `_promises`) so
-        # the next mount coincides with the final figure and is gated on the
-        # style `load` event.
-        self.has_track = False
+        # Raising the flag and yielding sends it as its own delta, which swaps
+        # the plot for a skeleton (running `Plotly.purge`, clearing
+        # `_promises`) so the next mount coincides with the final figure and
+        # goes through `createMap`, which *does* wait for the style.
+        #
+        # Best-effort only: batched deltas can skip the skeleton frame
+        # entirely. The React key on the plot (`map_key`) is the actual
+        # guarantee. See map_view.route_map and AGENTS.md rule 29.
+        self.loading = True
         yield
 
         self.not_found = False
@@ -131,6 +156,10 @@ class RouteDetailState(rx.State):
         self.rides = [_to_row(ride) for ride in rides]
         self.stats = _route_stats(route, rides)
         self._build_map(route_id, rides)
+        # Last, with no `yield` in between, so the flag and the figure land in
+        # one delta.
+        self.loading = False
+        self.loaded_id = str(route_id)
 
         log.info("route_detail.load", route_id=route_id, rides=len(rides))
 
@@ -148,7 +177,8 @@ class RouteDetailState(rx.State):
         drawn = [ride for ride in rides if ride.map_points][:MAX_HEAT_RIDES]
         self.has_track = bool(drawn)
         if not drawn:
-            self.map_figure = go.Figure()
+            self.map_key = f"route-{route_id}"
+            self.map_figure = figure_to_dict(blank_map_figure(STYLE_LIGHT))
             return
 
         if len(drawn) < len([r for r in rides if r.map_points]):
@@ -157,6 +187,7 @@ class RouteDetailState(rx.State):
         opacity = heat_opacity(len(drawn))
         traces = [
             MapTrace(
+                uid=f"heat-{ride.id}",
                 points=[(p[0], p[1]) for p in ride.map_points],
                 color=HEAT_COLOUR,
                 width=4.0,
@@ -175,23 +206,8 @@ class RouteDetailState(rx.State):
             # inherit route B's camera.
             uirevision=f"route:{route_id}",
         )
-        self.map_figure = built.figure
-
-
-def heat_opacity(ride_count: int) -> float:
-    """Per-trace alpha for a heat map of ``ride_count`` rides.
-
-    A constant cannot serve both ends of the range. At 0.15 a single ride is
-    nearly invisible; at 0.45 ten rides saturate to solid everywhere and the
-    deviations the map exists to show disappear. This keeps a lone strand
-    legible against the shared spine at every count.
-
-    One ride is drawn **solid**: with nothing to stack against, transparency
-    only makes it look washed out.
-    """
-    if ride_count <= 1:
-        return 1.0
-    return max(0.12, min(0.55, 1.6 / ride_count))
+        self.map_key = f"route-{route_id}"
+        self.map_figure = figure_to_dict(built.figure)
 
 
 # ---------------------------------------------------------------------------

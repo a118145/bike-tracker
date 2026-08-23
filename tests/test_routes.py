@@ -21,7 +21,8 @@ EXPECTED_ROUTES = {
     routes.RIDES_ROUTE,
     routes.RIDE_DETAIL_ROUTE,
     routes.FITNESS_ROUTE,
-    routes.BIKES_ROUTE,
+    routes.SETTINGS_ROUTE,
+    routes.HAMMERHEAD_CALLBACK_ROUTE,
     routes.NOT_FOUND_ROUTE,
 }
 

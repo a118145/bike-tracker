@@ -23,11 +23,14 @@ from bike_tracker.navigation.nav_config import (
         ("/routes", "/routes"),
         ("/rides", "/rides"),
         ("/fitness", "/fitness"),
-        ("/bikes", "/bikes"),
+        ("/settings", "/settings"),
         # Dynamic detail pages have no menu entry of their own; segment-aware
         # matching resolves them to the parent so the sidebar stays lit.
         ("/rides/7", "/rides"),
         ("/routes/3", "/routes"),
+        # The OAuth callback has no nav entry either, so Settings must stay
+        # lit while the browser passes through it.
+        ("/settings/hammerhead/callback", "/settings"),
         # Trailing slashes are normalised away.
         ("/rides/", "/rides"),
     ],

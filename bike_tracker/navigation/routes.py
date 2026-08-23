@@ -12,5 +12,9 @@ ROUTE_DETAIL_ROUTE = ROUTES_ROUTE + "/[route_id]"
 RIDES_ROUTE = "/rides"
 RIDE_DETAIL_ROUTE = RIDES_ROUTE + "/[ride_id]"
 FITNESS_ROUTE = "/fitness"
-BIKES_ROUTE = "/bikes"
+SETTINGS_ROUTE = "/settings"
+# Where Hammerhead sends the browser back after the OAuth consent screen.
+# `resolve_active_route` matches segment-wise, so this lights up Settings in
+# the sidebar without a nav entry of its own.
+HAMMERHEAD_CALLBACK_ROUTE = SETTINGS_ROUTE + "/hammerhead/callback"
 NOT_FOUND_ROUTE = "/404"

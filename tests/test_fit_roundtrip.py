@@ -27,6 +27,7 @@ from bike_tracker.ingest.fit import ParsedRide, name_from_filename, parse
 from bike_tracker.ingest.importer import import_ride, refresh_route_stats
 from bike_tracker.ingest.seed import seed_bikes
 from bike_tracker.ingest.sources.file import import_file
+from bike_tracker.metrics.geo import EARTH_RADIUS_M
 from bike_tracker.models import Bike, Lap, MetricFields, Ride, RideStream, Route
 
 from .conftest import ALL_FIT_FILES, EVENING_FIT, MORNING_FIT
@@ -708,6 +709,79 @@ def test_the_same_ride_rematches_its_own_route(db_url: str) -> None:
     engine.dispose()
 
 
+def _shift_track(parsed: ParsedRide, metres: float, fit_hash: str) -> ParsedRide:
+    """The same ride recorded again, with the receiver drifting sideways."""
+    degrees = metres / (np.radians(1.0) * EARTH_RADIUS_M)
+    parsed.channels["lon"] = [
+        None if v is None else v + degrees * np.sin(i / 5)
+        for i, v in enumerate(parsed.channels["lon"])
+    ]
+    parsed.fit_hash = fit_hash
+    return parsed
+
+
+def test_a_long_route_ridden_again_matches_instead_of_forking(db_url: str) -> None:
+    """The bug that produced 72 routes for 88 rides.
+
+    The morning ride is 71 km. Probes used to be compared against 200
+    resampled *vertices* of the stored route — 356 m apart at that length — so
+    a point sitting exactly on the road could be 178 m from the nearest one,
+    three times the 60 m tolerance. The two recordings scored ~0.4 and forked.
+    The evening ride is 19 km and matched fine, which is exactly why this went
+    unnoticed until a season of long rides arrived.
+    """
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        seed_bikes(session)
+        first = _get(session, Ride, import_file(MORNING_FIT, session).ride_id)
+
+        repeat = _shift_track(parse(MORNING_FIT.read_bytes()), 30.0, "same-long-route-again")
+        second = import_ride(repeat, session, name="Morning Ride again").ride
+
+        assert second.route_id == first.route_id
+        assert _get(session, Route, first.route_id).ride_count == 2
+    engine.dispose()
+
+
+def test_a_point_to_point_ride_in_reverse_gets_its_own_route(db_url: str) -> None:
+    """Out climbs the hill, back descends it — not the same route.
+
+    The evening ride finishes 5.4 km from where it started, so it has a
+    direction worth respecting. A loop would not.
+    """
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        seed_bikes(session)
+        outbound = _get(session, Ride, import_file(EVENING_FIT, session).ride_id)
+
+        back = parse(EVENING_FIT.read_bytes())
+        back.channels["lat"] = list(reversed(back.channels["lat"]))
+        back.channels["lon"] = list(reversed(back.channels["lon"]))
+        back.fit_hash = "the-way-home"
+        inbound = import_ride(back, session, name="The way home").ride
+
+        assert inbound.route_id != outbound.route_id
+    engine.dispose()
+
+
+def test_a_loop_ridden_the_other_way_round_is_the_same_route(db_url: str) -> None:
+    """The other half of the rule. The morning ride ends 82 m from its start,
+    so reversing it changes nothing about which roads it covers."""
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        seed_bikes(session)
+        clockwise = _get(session, Ride, import_file(MORNING_FIT, session).ride_id)
+
+        other = parse(MORNING_FIT.read_bytes())
+        other.channels["lat"] = list(reversed(other.channels["lat"]))
+        other.channels["lon"] = list(reversed(other.channels["lon"]))
+        other.fit_hash = "the-other-way-round"
+        anticlockwise = import_ride(other, session, name="Anticlockwise").ride
+
+        assert anticlockwise.route_id == clockwise.route_id
+    engine.dispose()
+
+
 def test_import_puts_the_distance_on_the_odometer(db_url: str) -> None:
     engine = create_engine(db_url)
     with Session(engine) as session:
@@ -731,6 +805,30 @@ def test_ftp_falls_back_to_the_head_units_own_setting(db_url: str) -> None:
         assert ride.ftp_at_time_w == 230
         assert ride.load_source == "power"
         assert ride.power_available is True
+    engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("path", "expected_ftp"), [(EVENING_FIT, 230), (MORNING_FIT, 250)], ids=lambda v: str(v)
+)
+def test_import_stores_what_the_head_unit_was_configured_with(
+    db_url: str, path: Path, expected_ftp: int
+) -> None:
+    """The device FTP has to survive the file, which is not kept (§1.3).
+
+    It is the second step of the fallback chain: without a stored copy,
+    deleting the last evaluation leaves the ride quoting a number backed by
+    nothing. See ``ingest.importer.resolve_fitness``.
+    """
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        seed_bikes(session)
+        ride = _get(session, Ride, import_file(path, session).ride_id)
+        assert ride.device_ftp_w == expected_ftp
+        # The Karoo writes no threshold heart rate. `max_heart_rate` is a
+        # different quantity and must not be borrowed for it.
+        assert ride.device_lthr_bpm is None
+        assert parse(path.read_bytes()).session.get("max_heart_rate") is not None
     engine.dispose()
 
 

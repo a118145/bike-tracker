@@ -2,8 +2,8 @@
 
 Two ways in, one code path: a watched drop folder for bulk backfills, and the
 upload dialog on the Rides page. Both call :func:`import_bytes`, which calls
-``importer.import_ride`` — the same function the Hammerhead poller will call
-when it lands beside this module as ``sources/hammerhead.py``.
+``importer.import_ride`` — the same function ``sources/hammerhead.py`` calls
+with the bytes it downloads.
 """
 
 import os

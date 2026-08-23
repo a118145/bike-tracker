@@ -21,6 +21,18 @@ EARTH_RADIUS_M = 6_371_008.8
 # while the width still fitted, i.e. clipped top and bottom and nothing else.
 TILE_SIZE_PX = 512
 
+# Spacing between the probe points `route_match_score` tests a track at. A
+# fixed *count* would make the spacing proportional to length, which is exactly
+# the defect that let long routes never match; a fixed *spacing* keeps the
+# check equally thorough at 6 km and at 200 km. The bounds cap the cost on a
+# very long tour and keep a short track from being probed too coarsely.
+MATCH_PROBE_SPACING_M = 25.0
+MIN_MATCH_PROBES = 200
+MAX_MATCH_PROBES = 4000
+
+# How close a track's start and end must be for it to count as a loop.
+LOOP_MARGIN_M = 500.0
+
 Point = tuple[float, float]
 
 
@@ -115,49 +127,148 @@ def resample_polyline(points: list[Point], count: int) -> list[Point]:
     return [(float(a), float(o)) for a, o in zip(lats, lons, strict=True)]
 
 
-def _coverage(a: list[Point], b: list[Point], tolerance_m: float) -> float:
-    """Fraction of ``a``'s points with some point of ``b`` within tolerance."""
-    if not a or not b:
-        return 0.0
-    b_lat = np.array([p[0] for p in b])
-    b_lon = np.array([p[1] for p in b])
-    mean_lat = math.radians(float(np.mean(b_lat)))
-    lat_scale = math.cos(mean_lat)
+def _to_local_metres(points: list[Point], lat_scale: float) -> np.ndarray:
+    """Project ``(lat, lon)`` onto a local equirectangular plane, in metres.
+
+    One shared ``lat_scale`` for both tracks, so the two are measured in the
+    same plane — computing it per track would shear one relative to the other.
+    """
     metres_per_degree = math.radians(1.0) * EARTH_RADIUS_M
+    return np.array(
+        [[p[0] * metres_per_degree, p[1] * lat_scale * metres_per_degree] for p in points],
+        dtype=float,
+    )
+
+
+def _coverage(
+    probes: list[Point], track: list[Point], tolerance_m: float, lat_scale: float
+) -> float:
+    """Fraction of ``probes`` lying within ``tolerance_m`` of ``track``'s **polyline**.
+
+    Distance is measured to the track's *segments*, not to its vertices. That
+    distinction is the whole correctness of :func:`route_match_score`: measured
+    to vertices, the achievable distance is bounded below by half the vertex
+    spacing, so the effective tolerance grows with track length and a long
+    route can never match itself. See the note there.
+    """
+    if not probes or not track:
+        return 0.0
+
+    limit = tolerance_m * tolerance_m
+    points = _to_local_metres(track, lat_scale)
+    probe_points = _to_local_metres(probes, lat_scale)
+
+    if len(points) == 1:
+        # A degenerate one-point track has no segments; fall back to the point.
+        distances = ((probe_points - points[0]) ** 2).sum(axis=1)
+        return float(np.count_nonzero(distances <= limit)) / len(probes)
+
+    starts = points[:-1]
+    deltas = points[1:] - starts
+    lengths_sq = (deltas * deltas).sum(axis=1)
+    # A zero-length segment would divide by zero; the clamp below then pins
+    # t = 0 and the distance is measured to the (coincident) endpoint anyway.
+    lengths_sq[lengths_sq == 0.0] = 1e-12
 
     hits = 0
-    for lat, lon in a:
-        dy = (b_lat - lat) * metres_per_degree
-        dx = (b_lon - lon) * lat_scale * metres_per_degree
-        if float(np.min(dx * dx + dy * dy)) <= tolerance_m * tolerance_m:
+    for probe in probe_points:
+        offsets = probe - starts
+        t = np.clip((offsets * deltas).sum(axis=1) / lengths_sq, 0.0, 1.0)
+        closest = starts + t[:, None] * deltas
+        if float(((probe - closest) ** 2).sum(axis=1).min()) <= limit:
             hits += 1
-    return hits / len(a)
+    return hits / len(probes)
+
+
+def _probe_count(points: list[Point]) -> int:
+    """How many evenly spaced probes to test a track with.
+
+    Derived from length at a fixed spatial spacing rather than being a
+    constant, so the probe density — how thoroughly a track is checked — stays
+    the same whether it is a 6 km commute or a 200 km tour. A constant count
+    silently makes the spacing proportional to length instead.
+    """
+    length_m = polyline_length_m(points)
+    wanted = int(length_m / MATCH_PROBE_SPACING_M)
+    return max(MIN_MATCH_PROBES, min(wanted, MAX_MATCH_PROBES))
 
 
 def route_match_score(
     a: list[Point],
     b: list[Point],
     tolerance_m: float = 60.0,
-    samples: int = 200,
+    samples: int | None = None,
 ) -> float:
     """How well two tracks describe the same route, from 0 to 1.
 
-    Both tracks are resampled to the same number of evenly spaced points, then
-    each is asked what fraction of its points lie within ``tolerance_m`` of the
-    other. The score is the **smaller** of the two fractions, which is what
-    makes it symmetric and what stops a short ride scoring 1.0 merely because
-    it is entirely contained in a long one.
+    Each track is probed at evenly spaced points and asked what fraction of
+    those probes lie within ``tolerance_m`` of the **other track's polyline**.
+    The score is the *smaller* of the two fractions, which is what makes it
+    symmetric and what stops a short ride scoring 1.0 merely because it is
+    entirely contained in a long one.
 
     ``tolerance_m`` is deliberately loose. GPS wanders by tens of metres under
     tree cover, and the two sides of a dual carriageway are the same route.
+
+    **Two things here used to be one thing, and that was the bug.** Probes were
+    compared against the other track's *resampled vertices*, at a fixed 200 of
+    them. Vertex spacing is then ``length / 199`` — 31 m for a 6 km commute but
+    493 m for a 98 km ride — and a point lying exactly on the route sits up to
+    half a spacing from the nearest vertex. The comparison tolerance therefore
+    grew with route length and above roughly 24 km nothing could match: two
+    recordings of the same 62 km loop scored 0.365 where the true similarity is
+    0.987. Measuring to segments removes the dependency entirely, and the probe
+    count now only controls how *thoroughly* each track is checked.
+
+    ``samples`` overrides the derived probe count. Only tests pass it, to pin
+    the length-independence property against the old fixed-count behaviour.
+
+    Note this is pure geometry: it does not know which way either track was
+    ridden. ``opposite_directions`` is the separate question, and the caller
+    decides what to do about it.
     """
     if not a or not b:
         return 0.0
-    resampled_a = resample_polyline(a, samples)
-    resampled_b = resample_polyline(b, samples)
-    forward = _coverage(resampled_a, resampled_b, tolerance_m)
-    backward = _coverage(resampled_b, resampled_a, tolerance_m)
+
+    # One projection plane for both tracks; see _to_local_metres.
+    lat_scale = math.cos(math.radians((a[0][0] + b[0][0]) / 2.0))
+
+    probes_a = resample_polyline(a, samples if samples is not None else _probe_count(a))
+    probes_b = resample_polyline(b, samples if samples is not None else _probe_count(b))
+    forward = _coverage(probes_a, b, tolerance_m, lat_scale)
+    backward = _coverage(probes_b, a, tolerance_m, lat_scale)
     return min(forward, backward)
+
+
+def is_loop(points: list[Point], margin_m: float = LOOP_MARGIN_M) -> bool:
+    """Whether a track finishes where it started.
+
+    The distinction matters because direction is only meaningful for a
+    point-to-point ride. A loop ridden the other way round is the same route;
+    a commute ridden the other way round climbs the hill it used to descend.
+    """
+    if len(points) < 2:
+        return True
+    return haversine_m(points[0], points[-1]) <= margin_m
+
+
+def opposite_directions(a: list[Point], b: list[Point]) -> bool:
+    """Whether two point-to-point tracks run the same roads in reverse.
+
+    ``False`` whenever either track is a loop — a loop has no direction worth
+    distinguishing, and its endpoints coincide, so the test below would be
+    noise.
+
+    For the rest, the endpoints are simply paired up both ways and the closer
+    pairing wins. No absolute threshold is involved, so a ride that started a
+    few streets early is unaffected, and the answer degrades gracefully rather
+    than flipping at a cliff edge.
+    """
+    if len(a) < 2 or len(b) < 2 or is_loop(a) or is_loop(b):
+        return False
+    same_way = haversine_m(a[0], b[0]) + haversine_m(a[-1], b[-1])
+    reversed_way = haversine_m(a[0], b[-1]) + haversine_m(a[-1], b[0])
+    return reversed_way < same_way
 
 
 def polyline_length_m(points: list[Point]) -> float:
@@ -230,6 +341,36 @@ def bounding_box(points: list[Point]) -> tuple[float, float, float, float]:
     lats = [p[0] for p in points]
     lons = [p[1] for p in points]
     return min(lats), min(lons), max(lats), max(lons)
+
+
+def bbox_overlap(a: list[Point], b: list[Point]) -> float:
+    """Overlap of two tracks' bounding boxes, as a fraction of the smaller one.
+
+    A cheap gate in front of :func:`route_match_score`, which costs a few
+    hundred milliseconds a pair. Two tracks whose boxes barely intersect cannot
+    possibly be the same route, and skipping them turns "score against every
+    known route" from seconds into nothing.
+
+    Relative to the *smaller* box on purpose: a short ride wholly inside a long
+    one scores 1.0 here and goes on to be scored properly, where dividing by
+    the union would reject it before it was ever looked at.
+    """
+    if not a or not b:
+        return 0.0
+    a_min_lat, a_min_lon, a_max_lat, a_max_lon = bounding_box(a)
+    b_min_lat, b_min_lon, b_max_lat, b_max_lon = bounding_box(b)
+
+    lat_overlap = max(0.0, min(a_max_lat, b_max_lat) - max(a_min_lat, b_min_lat))
+    lon_overlap = max(0.0, min(a_max_lon, b_max_lon) - max(a_min_lon, b_min_lon))
+
+    a_area = (a_max_lat - a_min_lat) * (a_max_lon - a_min_lon)
+    b_area = (b_max_lat - b_min_lat) * (b_max_lon - b_min_lon)
+    smaller = min(a_area, b_area)
+    if smaller <= 0.0:
+        # A track confined to one line of latitude or longitude has no area.
+        # Fall back to "do the boxes touch at all", rather than dividing by 0.
+        return 1.0 if lat_overlap > 0.0 or lon_overlap > 0.0 else 0.0
+    return (lat_overlap * lon_overlap) / smaller
 
 
 def to_points(lat: FloatArray, lon: FloatArray) -> list[Point]:

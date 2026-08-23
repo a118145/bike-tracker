@@ -16,6 +16,8 @@ from datetime import UTC, datetime
 from reflex.model import ModelRegistry
 from sqlmodel import Field, SQLModel
 
+from ..metrics.power import FTP_FROM_20MIN_FACTOR as _FTP_FROM_20MIN_FACTOR
+
 EVAL_FTP = "ftp"
 EVAL_BASELINE = "baseline"
 # Lactate threshold heart rate. Not offered by the ride-detail dialog, which
@@ -29,8 +31,10 @@ METHOD_WINDOW = "window"  # two sliders: start % and end % of ride duration
 METHOD_LAP = "lap"  # a lap of the ride
 METHOD_BEST_FIT = "best_fit"  # sliding 20 min window around a guess (FTP only)
 
-# FTP is 95% of the best 20-minute average power (masterplan §2.4.2).
-FTP_FROM_20MIN_FACTOR = 0.95
+# Re-exported from metrics so the factor and the function that applies it
+# cannot drift apart. `metrics/` may not import `models/`, but the reverse is
+# fine — metrics imports nothing from this app at all.
+FTP_FROM_20MIN_FACTOR = _FTP_FROM_20MIN_FACTOR
 
 
 @ModelRegistry.register

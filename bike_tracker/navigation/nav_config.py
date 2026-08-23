@@ -36,7 +36,7 @@ NAV_ITEMS: list[NavItem] = [
     {"label": "Routes", "icon": "route", "route": routes.ROUTES_ROUTE},
     {"label": "Rides", "icon": "bike", "route": routes.RIDES_ROUTE},
     {"label": "Fitness", "icon": "heart-pulse", "route": routes.FITNESS_ROUTE},
-    {"label": "Bikes", "icon": "wrench", "route": routes.BIKES_ROUTE},
+    {"label": "Settings", "icon": "settings", "route": routes.SETTINGS_ROUTE},
 ]
 
 
