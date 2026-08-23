@@ -92,8 +92,18 @@ def _selector(
 def _header() -> rx.Component:
     return rx.hstack(
         rx.vstack(
-            rx.heading(RideDetailState.title, size="7"),
-            rx.text(RideDetailState.subtitle, size="2", color_scheme="gray"),
+            # Skeletons rather than the text: on a client-side navigation the
+            # page first renders with the *previous* ride's title, because
+            # Reflex does not reset state and the new data is a round-trip
+            # away. See RideDetailState.stale.
+            rx.skeleton(
+                rx.heading(RideDetailState.title, size="7"),
+                loading=RideDetailState.stale,
+            ),
+            rx.skeleton(
+                rx.text(RideDetailState.subtitle, size="2", color_scheme="gray"),
+                loading=RideDetailState.stale,
+            ),
             spacing="1",
             align="start",
         ),
@@ -128,7 +138,7 @@ def _chart() -> rx.Component:
     return rx.card(
         rx.vstack(
             rx.cond(
-                RideDetailState.plots_loading,
+                RideDetailState.stale,
                 chart_skeleton(),
                 ride_chart(RideDetailState.chart_figure),
             ),
@@ -145,11 +155,12 @@ def _found() -> rx.Component:
         _header(),
         map_slot(
             RideDetailState.map_figure,
-            loading=RideDetailState.plots_loading,
+            loading=RideDetailState.stale,
             has_track=RideDetailState.has_track,
+            record_key=RideDetailState.map_key,
         ),
         _chart(),
-        ride_stat_cards(),
+        rx.skeleton(ride_stat_cards(), loading=RideDetailState.stale),
         # Picking "Create new" from the route dropdown makes a route and hands
         # straight to this dialog, so it has to be mounted here as well as on
         # the routes list.

@@ -68,16 +68,26 @@ class RouteDetailState(rx.State):
     title: str = ""
     subtitle: str = ""
 
-    # See RideDetailState.plots_loading — same contract, one plot instead
-    # of two.
-    plots_loading: bool = True
+    # See RideDetailState.loading — same contract, one plot instead of two.
+    loading: bool = True
+    loaded_id: str = ""
     has_track: bool = False
     # Serialised, not `go.Figure` — see utils/plotly_json.
     map_figure: dict = figure_to_dict(blank_map_figure(STYLE_LIGHT))
+    # React key for the map plot — see map_view.route_map.
+    map_key: str = "route-none"
     truncated_note: str = ""
 
     stats: dict[str, str] = {}
     rides: list[RideRow] = []
+
+    @rx.var
+    def stale(self) -> bool:
+        """True while what is on screen may belong to another route.
+
+        See RideDetailState.stale.
+        """
+        return self.loading or self.loaded_id != self.route_id
 
     @rx.var
     def ride_count(self) -> int:
@@ -107,9 +117,10 @@ class RouteDetailState(rx.State):
         # `_promises`) so the next mount coincides with the final figure and
         # goes through `createMap`, which *does* wait for the style.
         #
-        # This covers the load path only; re-plots of a mounted map are made
-        # safe by the trace uids instead. See MapTrace.
-        self.plots_loading = True
+        # Best-effort only: batched deltas can skip the skeleton frame
+        # entirely. The React key on the plot (`map_key`) is the actual
+        # guarantee. See map_view.route_map and AGENTS.md rule 29.
+        self.loading = True
         yield
 
         self.not_found = False
@@ -146,7 +157,8 @@ class RouteDetailState(rx.State):
         self._build_map(route_id, rides)
         # Last, with no `yield` in between, so the flag and the figure land in
         # one delta.
-        self.plots_loading = False
+        self.loading = False
+        self.loaded_id = str(route_id)
 
         log.info("route_detail.load", route_id=route_id, rides=len(rides))
 
@@ -164,6 +176,7 @@ class RouteDetailState(rx.State):
         drawn = [ride for ride in rides if ride.map_points][:MAX_HEAT_RIDES]
         self.has_track = bool(drawn)
         if not drawn:
+            self.map_key = f"route-{route_id}"
             self.map_figure = figure_to_dict(blank_map_figure(STYLE_LIGHT))
             return
 
@@ -192,6 +205,7 @@ class RouteDetailState(rx.State):
             # inherit route B's camera.
             uirevision=f"route:{route_id}",
         )
+        self.map_key = f"route-{route_id}"
         self.map_figure = figure_to_dict(built.figure)
 
 

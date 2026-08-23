@@ -95,15 +95,24 @@ def _summary_card() -> rx.Component:
 def _found() -> rx.Component:
     return rx.vstack(
         rx.vstack(
-            rx.heading(RouteDetailState.title, size="7"),
-            rx.text(RouteDetailState.subtitle, size="2", color_scheme="gray"),
+            # See RideDetailState.stale — the previous route's title would
+            # otherwise show until the new data lands.
+            rx.skeleton(
+                rx.heading(RouteDetailState.title, size="7"),
+                loading=RouteDetailState.stale,
+            ),
+            rx.skeleton(
+                rx.text(RouteDetailState.subtitle, size="2", color_scheme="gray"),
+                loading=RouteDetailState.stale,
+            ),
             spacing="1",
             align="start",
         ),
         map_slot(
             RouteDetailState.map_figure,
-            loading=RouteDetailState.plots_loading,
+            loading=RouteDetailState.stale,
             has_track=RouteDetailState.has_track,
+            record_key=RouteDetailState.map_key,
             empty_message="No GPS track on this route's rides.",
         ),
         rx.cond(
@@ -114,8 +123,8 @@ def _found() -> rx.Component:
                 color_scheme="gray",
             ),
         ),
-        _summary_card(),
-        route_rides_table(),
+        rx.skeleton(_summary_card(), loading=RouteDetailState.stale),
+        rx.skeleton(route_rides_table(), loading=RouteDetailState.stale),
         spacing="4",
         align="start",
         width="100%",

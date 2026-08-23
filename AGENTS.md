@@ -237,15 +237,42 @@ advice. Read it before editing.
     changes — so it calls `addSource` and throws "Style is not done loading."
     The throw is unrecoverable: the rejected promise stays in `gd._promises`,
     which `Plots.previousPromises` checks first on every later plot, so the
-    div never redraws again. Set `plots_loading = True` and `yield` at the top
-    of `load`, and clear it as the *last* statement with no `yield` in
-    between — the flag and the finished figures then land in one delta, so the
-    plot unmounts (running `Plotly.purge`), and its next mount coincides with
-    the final figure and goes through `createMap`, which *does* wait for the
-    style. `has_track` means only "this record has GPS".
+    div never redraws again.
 
-    This covers the load path and nothing else. A re-plot of a *mounted* map
-    unmounts nothing, and is rule 31's problem.
+    **The guarantee is the React `key`, not the loading flag.** Pass a
+    `record_key` that changes with the record to `map_slot`/`route_map`; it
+    becomes the plot's React key, so a record change destroys and recreates
+    the plot *in the same commit* and the next mount goes through `createMap`,
+    which waits for the style. Key on the record only — never on a
+    sub-selection like the selected lap, which must stay an in-place update
+    (rule 31).
+
+    The `loading` flag (set `True` + `yield` at the top of `load`, cleared as
+    the *last* statement with no `yield` in between) is a UX affordance and a
+    best-effort unmount. It is **not sufficient on its own**, for two reasons
+    measured on this app:
+
+    - it is a server round-trip, so the page has already rendered — and the
+      map already mounted — with the *previous* record's figure before the
+      flag can flip; and
+    - when the two deltas arrive close together React commits them as one, the
+      skeleton frame never renders, and nothing unmounts at all.
+
+    `has_track` means only "this record has GPS". `stale` (`loading` or
+    `loaded_id != <router id>`) is what the page body gates on, so the heading
+    and stat cards do not flash the previous record's values.
+
+    **Verify this by navigating fast.** A test that waits seconds between
+    clicks separates the deltas, renders the skeleton, and passes while the
+    bug is live — that is exactly how this survived a previous fix. Click at
+    150–400 ms, across records with *different* trace-uid sets (different lap
+    counts), and assert a new `.bt-map` element per record change. Watch the
+    backend terminal too: Reflex forwards frontend exceptions there, which is
+    where this was actually observed.
+
+    Known residue: destroying a map while its style fetch is in flight makes
+    MapLibre log `AbortError`. Benign, console-only, never reaches Reflex's
+    error boundary, and only at sub-second navigation.
 
     Render the three states through `map_view.map_slot`, never an
     `rx.skeleton` wrapped around the plot: Radix keeps a skeleton's children

@@ -340,10 +340,25 @@ def build_map_figure(
     )
 
 
-def route_map(figure: rx.Var[dict], height: str = "460px") -> rx.Component:
-    """Full-page interactive map. Zoom and pan come from the library."""
+def route_map(
+    figure: rx.Var[dict],
+    height: str = "460px",
+    *,
+    record_key: rx.Var[str] | str = "map",
+) -> rx.Component:
+    """Full-page interactive map. Zoom and pan come from the library.
+
+    ``record_key`` is the React key and it is **load-bearing**, not a hint to
+    the reconciler. It must change whenever the figure starts describing a
+    different record. React then destroys and recreates the plot in the same
+    commit, which runs ``Plotly.purge`` and sends the next mount through
+    Plotly's ``createMap`` — the one path that waits for the MapLibre style.
+    Without it, a figure belonging to another record can reach a live map via
+    ``updateMap`` and throw "Style is not done loading." See AGENTS.md rule 29.
+    """
     return rx.box(
         rx.plotly(
+            key=record_key,
             # The figure travels as an already-serialised dict, because
             # Reflex's own `go.Figure` serializer strips every trace uid
             # (utils/plotly_json). `data` is declared `Var[Figure]`, so the
@@ -400,6 +415,7 @@ def map_slot(
     *,
     loading: rx.Var[bool],
     has_track: rx.Var[bool],
+    record_key: rx.Var[str] | str = "map",
     height: str = "460px",
     empty_message: str = "No GPS track for this ride.",
 ) -> rx.Component:
@@ -417,7 +433,7 @@ def map_slot(
         map_skeleton(height),
         rx.cond(
             has_track,
-            route_map(figure, height),
+            route_map(figure, height, record_key=record_key),
             empty_map(empty_message, height),
         ),
     )

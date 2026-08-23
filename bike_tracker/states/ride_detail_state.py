@@ -95,15 +95,22 @@ class RideDetailState(rx.State):
     title: str = ""
     subtitle: str = ""
 
-    # True while `load` is still assembling the figures. Gates the map and the
-    # chart behind a skeleton; see the comment in `load`. Defaults to True so
-    # a cold page paints the skeleton rather than flashing "No GPS track".
-    plots_loading: bool = True
+    # True while `load` is still assembling the page. Gates the plots and the
+    # text behind skeletons; see the comment in `load`. Defaults to True so a
+    # cold page paints the skeleton rather than flashing "No GPS track".
+    loading: bool = True
+    # Which record the data below actually belongs to. Compared against the
+    # router's `ride_id` so the page shows a placeholder instead of the
+    # previous ride while a navigation is in flight.
+    loaded_id: str = ""
     has_track: bool = False
     # Serialised figures, not `go.Figure`: Reflex's own figure serializer
     # strips every trace uid. See utils/plotly_json.
     map_figure: dict = figure_to_dict(blank_map_figure(STYLE_LIGHT))
     chart_figure: dict = {}
+    # React key for the map plot. Changes with the ride and *only* with the
+    # ride: a lap selection must stay an in-place update. See map_view.route_map.
+    map_key: str = "ride-none"
 
     stats: dict[str, str] = {}
     active_channels: list[str] = []
@@ -124,6 +131,18 @@ class RideDetailState(rx.State):
     _time_s: list[float] = []
     _lap_bounds: list[tuple[float, float]] = []
     _lap_slices: list[tuple[int, int]] = []
+
+    @rx.var
+    def stale(self) -> bool:
+        """True while what is on screen may belong to another ride.
+
+        Two terms. `loading` covers the work `load` is doing. The id
+        comparison covers the window before `load` has even started: Reflex
+        does not reset state on client-side navigation, so the page first
+        renders with the previous ride's title, stats and figure. Whichever
+        delta lands first flips this.
+        """
+        return self.loading or self.loaded_id != self.ride_id
 
     @rx.var
     def lap_count(self) -> int:
@@ -167,9 +186,13 @@ class RideDetailState(rx.State):
         # `_promises`) so the next mount coincides with the final figure and
         # goes through `createMap`, which *does* wait for the style.
         #
-        # This covers the load path only. Re-plots of a mounted map — a lap
-        # click — are made safe by the trace uids instead; see MapTrace.
-        self.plots_loading = True
+        # This is a UX affordance and a best-effort unmount, not the
+        # guarantee. Two deltas that arrive close together are committed by
+        # React as one, so the skeleton frame may never render and nothing
+        # unmounts. What actually makes a cross-record figure safe is the
+        # React key on the plot (`map_key`); what makes a same-record re-plot
+        # safe is the stable trace uid set. See MapTrace and AGENTS.md 29/31.
+        self.loading = True
         yield
 
         self.not_found = False
@@ -210,7 +233,8 @@ class RideDetailState(rx.State):
         # Last, and with no `yield` between here and the figures above, so the
         # flag and the finished figures reach the client in one delta and the
         # plot's first mount already holds the final figure.
-        self.plots_loading = False
+        self.loading = False
+        self.loaded_id = str(ride_id)
 
         log.info(
             "ride_detail.load",
@@ -319,6 +343,7 @@ class RideDetailState(rx.State):
         )
         self.has_track = len(points) >= 2
         if not self.has_track:
+            self.map_key = f"ride-{ride.id}"
             self.map_figure = figure_to_dict(blank_map_figure(STYLE_LIGHT))
             return
 
@@ -342,6 +367,7 @@ class RideDetailState(rx.State):
             uirevision=f"{ride.id}:{self.selected_lap}",
             style=STYLE_LIGHT,
         )
+        self.map_key = f"ride-{ride.id}"
         self.map_figure = figure_to_dict(built.figure)
 
     def _cursor_track(self) -> tuple[list[float], list[float]] | None:
