@@ -11,21 +11,26 @@ rendering of the evening ride.
 """
 
 from collections.abc import Iterator
+from datetime import datetime
 
 import numpy as np
 import pytest
 from sqlmodel import Session, col, create_engine, select
 
+from bike_tracker import metrics
 from bike_tracker.components.map_view import (
     LAP_MARKER_COLOUR,
     MapMarker,
     MapTrace,
     blank_map_figure,
     build_map_figure,
+    heat_opacity,
     ride_map_traces,
 )
 from bike_tracker.components.ride_chart import (
     CHANNEL_SPECS,
+    EVAL_CHART_CHANNELS,
+    ChartData,
     build_chart_figure,
     decode_chart_data,
     seconds_to_clock,
@@ -35,12 +40,24 @@ from bike_tracker.ingest.fit import parse
 from bike_tracker.ingest.importer import import_ride
 from bike_tracker.ingest.seed import seed_bikes
 from bike_tracker.ingest.sources.file import import_file
-from bike_tracker.models import Bike, Lap, MetricFields, Ride, RideStream, Route
+from bike_tracker.models import (
+    EVAL_BASELINE,
+    EVAL_FTP,
+    EVAL_LTHR,
+    Bike,
+    FitnessEval,
+    Lap,
+    MetricFields,
+    Ride,
+    RideStream,
+    Route,
+)
+from bike_tracker.states.dashboard_state import RideTrack, dashboard_traces, ride_totals
+from bike_tracker.states.fitness_state import _duration_label, _value_text
 from bike_tracker.states.ride_detail_state import _stats
 from bike_tracker.states.rides_state import _to_card
 from bike_tracker.states.route_detail_state import (
     _route_stats,
-    heat_opacity,
 )
 from bike_tracker.states.route_detail_state import _to_row as _to_ride_row
 from bike_tracker.states.routes_state import _to_card as _to_route_card
@@ -84,6 +101,10 @@ def imported(db_url: str) -> Iterator[ImportedRide]:
 RIDE_ONLY_FIELDS = frozenset(
     {
         "bike_id",
+        # Head-unit configuration, not a metric: a lap has no reading of its
+        # own and inherits its ride's resolved FTP.
+        "device_ftp_w",
+        "device_lthr_bpm",
         "external_id",
         "fit_hash",
         "has_trailer",
@@ -759,3 +780,241 @@ def test_the_blank_map_figure_still_names_the_style() -> None:
     """A figure with no style makes Plotly call setStyle on a mounted map, and
     it then reconciles traces on `styledata` — before the style is loaded."""
     assert blank_map_figure().layout.map.style == "carto-positron"
+
+
+# ---------------------------------------------------------------------------
+# Fitness view
+# ---------------------------------------------------------------------------
+
+
+def test_evaluation_values_carry_their_own_unit() -> None:
+    """FTP is watts, baseline is a ratio, LTHR is bpm — never bare numbers."""
+    when = datetime(2026, 5, 1)
+    ftp = FitnessEval(type=EVAL_FTP, value=284.6, valid_from=when, start_time=when, end_time=when)
+    base = FitnessEval(
+        type=EVAL_BASELINE, value=1.847, valid_from=when, start_time=when, end_time=when
+    )
+    lthr = FitnessEval(type=EVAL_LTHR, value=168.0, valid_from=when, start_time=when, end_time=when)
+
+    assert _value_text(ftp) == "285 W"
+    # Two decimals: 1.8 and 1.85 W/bpm are a meaningful difference.
+    assert _value_text(base) == "1.85 W/bpm"
+    assert _value_text(lthr) == "168 bpm"
+
+
+def test_duration_labels_read_as_durations() -> None:
+    assert [_duration_label(d) for d in (5, 60, 1200, 3600)] == ["5 s", "1 min", "20 min", "1 h"]
+
+
+def test_zones_are_empty_without_a_reference_value() -> None:
+    """No FTP means no zone table — not a table of zeros (rule 13)."""
+    assert metrics.power_zones(0.0) == []
+    assert metrics.hr_zones(0.0) == []
+    assert len(metrics.power_zones(250.0)) == 7
+    assert len(metrics.hr_zones(170.0)) == 5
+
+
+def test_the_top_zone_is_open_ended() -> None:
+    """Z7 has no ceiling; its label must say so rather than inventing one."""
+    assert metrics.power_zones(250.0)[-1].label.endswith("+")
+    assert metrics.hr_zones(170.0)[-1].label.endswith("+")
+
+
+# ---------------------------------------------------------------------------
+# The evaluation dialog's own chart
+# ---------------------------------------------------------------------------
+
+
+_WHEN = datetime(2026, 5, 1, 9, 0)
+
+
+def _dialog_data(with_hr: bool = True) -> ChartData:
+    """A minute of synthetic ride, enough to draw and to shade."""
+    channels = {"power": np.full(60, 200.0), "speed": np.full(60, 8.0)}
+    if with_hr:
+        channels["hr"] = np.full(60, 150.0)
+    return ChartData.from_channels(
+        time_s=np.arange(60.0),
+        altitude_m=np.linspace(0.0, 30.0, 60),
+        channels=channels,
+    )
+
+
+def test_the_dialog_chart_is_drawn_small_and_the_page_chart_is_not() -> None:
+    """The dialog is 32em wide; the page chart must keep its own height."""
+    assert build_chart_figure(_dialog_data(), [], height_px=170).layout.height == 170
+    assert build_chart_figure(_dialog_data(), []).layout.height == 280
+
+
+def test_the_dialog_chart_draws_elevation_heart_rate_and_power() -> None:
+    """Fixed channels: it is not switchable, so it cannot drift with the page."""
+    figure = build_chart_figure(_dialog_data(), list(EVAL_CHART_CHANNELS), height_px=170)
+    names = [trace.name for trace in figure.data]
+
+    assert names == ["Elevation", "Heart rate", "Power"]
+    # Whatever the stat cards have switched on, these never appear here.
+    assert not {"Speed", "Cadence", "Temperature"} & set(names)
+
+
+def test_the_dialog_chart_survives_a_ride_with_no_heart_rate() -> None:
+    """A turbo session without a strap draws two lines, not an error (rule 13)."""
+    figure = build_chart_figure(
+        _dialog_data(with_hr=False), list(EVAL_CHART_CHANNELS), height_px=170
+    )
+    assert [trace.name for trace in figure.data] == ["Elevation", "Power"]
+
+
+def test_the_dialog_chart_shades_the_evaluated_window() -> None:
+    """The reason the chart is in the dialog at all."""
+    figure = build_chart_figure(
+        _dialog_data(), list(EVAL_CHART_CHANNELS), (10.0, 40.0), height_px=170
+    )
+    assert len(figure.layout.shapes) == 1
+    assert figure.layout.shapes[0].fillcolor is not None
+
+
+def test_a_short_chart_keeps_its_legend_clear_of_the_plot() -> None:
+    """The legend sits at y=1.16; at 170 px it would land on the traces."""
+    small = build_chart_figure(_dialog_data(), list(EVAL_CHART_CHANNELS), height_px=170)
+    full = build_chart_figure(_dialog_data(), list(EVAL_CHART_CHANNELS))
+    assert small.layout.margin.t > full.layout.margin.t
+
+
+# ---------------------------------------------------------------------------
+# Dashboard
+# ---------------------------------------------------------------------------
+
+
+def _track(track_id: int, bike_id: int | None, points: int = 4) -> RideTrack:
+    return RideTrack(
+        id=track_id,
+        bike_id=bike_id,
+        points=[[48.0 + i * 0.01, 11.0 + i * 0.01] for i in range(points)],
+    )
+
+
+def test_filtering_the_dashboard_never_changes_the_trace_set() -> None:
+    """The rule-31 guard, and the reason this function is pure.
+
+    Dropping a trace on deselect would shrink the trace set of a *mounted*
+    MapLibre map, which Plotly reads as traces destroyed — `removeLayer`, then
+    "Style is not done loading." and a permanently poisoned graph div. So a
+    deselected ride keeps its trace and loses only its points.
+    """
+    tracks = [_track(1, 10), _track(2, 10), _track(3, 20)]
+
+    everything = dashboard_traces(tracks, [])
+    one_bike = dashboard_traces(tracks, [10])
+    both = dashboard_traces(tracks, [10, 20])
+
+    assert len(everything) == len(one_bike) == len(both) == 3
+    uids = {t.uid for t in everything}
+    assert uids == {t.uid for t in one_bike} == {t.uid for t in both}
+    assert uids == {"ride-1", "ride-2", "ride-3"}
+
+
+def test_a_deselected_ride_keeps_its_trace_but_loses_its_points() -> None:
+    traces = {t.uid: t for t in dashboard_traces([_track(1, 10), _track(3, 20)], [10])}
+
+    assert traces["ride-1"].points, "the selected bike's ride is drawn"
+    assert traces["ride-3"].points == [], "the other bike's ride is blanked, not removed"
+
+
+def test_no_selection_draws_everything() -> None:
+    traces = dashboard_traces([_track(1, 10), _track(3, 20)], [])
+    assert all(trace.points for trace in traces)
+
+
+def test_opacity_follows_what_is_actually_drawn() -> None:
+    """Filtering to a single ride must not leave it washed out."""
+    # Four rides on bike 10, exactly one on bike 20.
+    tracks = [_track(i, 10) for i in range(1, 5)] + [_track(5, 20)]
+
+    # Filtered to the single ride: drawn solid, since it stacks against nothing.
+    assert dashboard_traces(tracks, [20])[0].opacity == 1.0
+    # All five stacked: translucent, or the overlaps say nothing.
+    assert dashboard_traces(tracks, [])[0].opacity < 1.0
+
+
+def test_dashboard_totals_count_each_route_once() -> None:
+    rides = [
+        Ride(
+            name="a",
+            fit_hash="a",
+            start_time=_WHEN,
+            end_time=_WHEN,
+            distance_m=10_000.0,
+            route_id=1,
+            calories_kcal=100.0,
+        ),
+        Ride(
+            name="b",
+            fit_hash="b",
+            start_time=_WHEN,
+            end_time=_WHEN,
+            distance_m=30_000.0,
+            route_id=1,
+            calories_kcal=300.0,
+        ),
+        Ride(
+            name="c",
+            fit_hash="c",
+            start_time=_WHEN,
+            end_time=_WHEN,
+            distance_m=20_000.0,
+            route_id=2,
+        ),
+    ]
+    totals = ride_totals(rides)
+
+    assert totals.distance_m == 60_000.0
+    assert totals.ride_count == 3
+    assert totals.route_count == 2, "route 1 was ridden twice but is one route"
+    assert totals.avg_distance_m == 20_000.0
+    # Only the rides that recorded calories contribute.
+    assert totals.calories_kcal == 400.0
+
+
+def test_a_ride_with_no_route_is_not_counted_as_one() -> None:
+    rides = [
+        Ride(name="a", fit_hash="a", start_time=_WHEN, end_time=_WHEN, distance_m=1.0),
+    ]
+    assert ride_totals(rides).route_count == 0
+
+
+def test_totals_over_nothing_are_empty_rather_than_a_division_by_zero() -> None:
+    totals = ride_totals([])
+    assert totals.ride_count == 0
+    assert totals.avg_distance_m is None
+    assert totals.calories_kcal is None
+
+
+def test_calories_are_none_when_no_ride_recorded_any() -> None:
+    """An em dash, never a confident zero (rule 13)."""
+    rides = [
+        Ride(name="a", fit_hash="a", start_time=_WHEN, end_time=_WHEN, distance_m=1.0),
+        Ride(name="b", fit_hash="b", start_time=_WHEN, end_time=_WHEN, distance_m=1.0),
+    ]
+    assert ride_totals(rides).calories_kcal is None
+
+
+def test_a_ride_with_no_bike_still_counts_toward_the_totals() -> None:
+    """The summary card is deliberately not the sum of the bike cards."""
+    rides = [
+        Ride(
+            name="a", fit_hash="a", start_time=_WHEN, end_time=_WHEN, distance_m=10_000.0, bike_id=1
+        ),
+        Ride(
+            name="b",
+            fit_hash="b",
+            start_time=_WHEN,
+            end_time=_WHEN,
+            distance_m=5_000.0,
+            bike_id=None,
+        ),
+    ]
+    everything = ride_totals(rides)
+    just_the_bike = ride_totals([r for r in rides if r.bike_id == 1])
+
+    assert everything.distance_m == 15_000.0
+    assert just_the_bike.distance_m == 10_000.0

@@ -734,6 +734,30 @@ def test_ftp_falls_back_to_the_head_units_own_setting(db_url: str) -> None:
     engine.dispose()
 
 
+@pytest.mark.parametrize(
+    ("path", "expected_ftp"), [(EVENING_FIT, 230), (MORNING_FIT, 250)], ids=lambda v: str(v)
+)
+def test_import_stores_what_the_head_unit_was_configured_with(
+    db_url: str, path: Path, expected_ftp: int
+) -> None:
+    """The device FTP has to survive the file, which is not kept (§1.3).
+
+    It is the second step of the fallback chain: without a stored copy,
+    deleting the last evaluation leaves the ride quoting a number backed by
+    nothing. See ``ingest.importer.resolve_fitness``.
+    """
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        seed_bikes(session)
+        ride = _get(session, Ride, import_file(path, session).ride_id)
+        assert ride.device_ftp_w == expected_ftp
+        # The Karoo writes no threshold heart rate. `max_heart_rate` is a
+        # different quantity and must not be borrowed for it.
+        assert ride.device_lthr_bpm is None
+        assert parse(path.read_bytes()).session.get("max_heart_rate") is not None
+    engine.dispose()
+
+
 def test_import_reports_no_cross_check_warnings(db_url: str) -> None:
     """The headline claim of this milestone: our maths agrees with the device."""
     engine = create_engine(db_url)

@@ -8,6 +8,7 @@ on inputs whose right answer can be worked out by hand;
 
 import itertools
 import math
+from datetime import datetime, timedelta
 
 import numpy as np
 import pytest
@@ -582,3 +583,76 @@ def test_hr_zones_are_relative_to_lthr() -> None:
 def test_zones_without_a_reference_value_are_empty() -> None:
     assert metrics.power_zones(0) == []
     assert metrics.hr_zones(0) == []
+
+
+# ---------------------------------------------------------------------------
+# Fitness: FTP and effort trends
+# ---------------------------------------------------------------------------
+
+
+def test_ftp_is_95_percent_of_the_best_twenty_minutes() -> None:
+    """The one number that turns a test effort into an FTP (masterplan §2.4.2)."""
+    assert metrics.ftp_from_20min(300.0) == pytest.approx(285.0)
+    # A negative average is not a negative FTP; it is no FTP.
+    assert metrics.ftp_from_20min(-10.0) == 0.0
+
+
+def _efforts(day: int, **best: float | None) -> tuple[datetime, dict[int, float | None]]:
+    return (
+        datetime(2026, 6, 1) + timedelta(days=day),
+        {int(k.lstrip("d")): v for k, v in best.items()},
+    )
+
+
+def test_effort_windows_take_the_best_of_each_span() -> None:
+    now = datetime(2026, 6, 1) + timedelta(days=40)
+    windows = metrics.best_effort_windows(
+        [_efforts(39, d60=300.0), _efforts(38, d60=340.0), _efforts(5, d60=250.0)],
+        window_days=30,
+        now=now,
+        max_windows=2,
+    )
+
+    assert [w.ride_count for w in windows] == [2, 1]
+    assert windows[0].best[60] == 340.0  # the better of the two recent rides
+    assert windows[1].best[60] == 250.0
+
+
+def test_effort_windows_are_half_open_so_no_ride_is_counted_twice() -> None:
+    """A ride exactly on a boundary belongs to the newer window."""
+    now = datetime(2026, 6, 1) + timedelta(days=30)
+    boundary = now - timedelta(days=30)
+    windows = metrics.best_effort_windows(
+        [(boundary, {60: 200.0})], window_days=30, now=now, max_windows=2
+    )
+    assert [w.ride_count for w in windows] == [1, 0]
+
+
+def test_an_empty_window_is_reported_rather_than_dropped() -> None:
+    """A span with no riding is information; compressing it would mislead."""
+    now = datetime(2026, 6, 1) + timedelta(days=100)
+    windows = metrics.best_effort_windows(
+        [_efforts(99, d60=280.0)], window_days=30, now=now, max_windows=3
+    )
+    assert len(windows) == 3
+    assert windows[0].is_empty is False
+    assert all(w.is_empty for w in windows[1:])
+    assert windows[1].best[60] is None
+
+
+def test_a_duration_no_ride_reached_stays_none() -> None:
+    """Never 0 W — that would draw a curve collapsing exactly where data ends."""
+    now = datetime(2026, 6, 1) + timedelta(days=10)
+    windows = metrics.best_effort_windows(
+        [_efforts(9, d60=300.0, d3600=None)], window_days=30, now=now, max_windows=1
+    )
+    assert windows[0].best[60] == 300.0
+    assert windows[0].best[3600] is None
+
+
+def test_effort_windows_reject_nonsense_spans() -> None:
+    assert metrics.best_effort_windows([], window_days=0, now=datetime(2026, 6, 1)) == []
+    assert (
+        metrics.best_effort_windows([], window_days=30, now=datetime(2026, 6, 1), max_windows=0)
+        == []
+    )

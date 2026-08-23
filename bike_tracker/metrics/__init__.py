@@ -43,6 +43,7 @@ from .geo import (
     to_points,
 )
 from .power import (
+    FTP_FROM_20MIN_FACTOR,
     GROSS_EFFICIENCY,
     NP_WINDOW_S,
     POWER_CURVE_WINDOWS_S,
@@ -52,6 +53,7 @@ from .power import (
     best_average_power,
     calories_kcal,
     decoupling,
+    ftp_from_20min,
     hr_tss,
     intensity_factor,
     normalized_power,
@@ -59,9 +61,11 @@ from .power import (
     total_work_kj,
     tss,
 )
+from .trends import EffortWindow, RideEfforts, best_effort_windows
 from .zones import HR_ZONE_BANDS, POWER_ZONE_BANDS, Zone, hr_zones, power_zones
 
 __all__ = [
+    "FTP_FROM_20MIN_FACTOR",
     "GAIN_THRESHOLD_M",
     "GROSS_EFFICIENCY",
     "HR_ZONE_BANDS",
@@ -72,13 +76,16 @@ __all__ = [
     "PREVIEW_VIEWBOX",
     "VAM_SMOOTH_WINDOW",
     "BestWindow",
+    "EffortWindow",
     "FloatArray",
     "Point",
+    "RideEfforts",
     "Zone",
     "as_float_array",
     "baseline",
     "best_20min_window",
     "best_average_power",
+    "best_effort_windows",
     "bounding_box",
     "bounds_to_center_zoom",
     "calories_kcal",
@@ -86,6 +93,7 @@ __all__ = [
     "channel_stats",
     "decoupling",
     "elevation_gain_loss",
+    "ftp_from_20min",
     "grade",
     "haversine_m",
     "hr_tss",

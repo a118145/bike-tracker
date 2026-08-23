@@ -65,6 +65,20 @@ class Ride(MetricFields, table=True):
     # stored streams.
     stream_offset_s: float = Field(default=0.0)
 
+    # --- what the head unit itself was configured with ---------------------
+    # Kept because the FIT file is not (masterplan §1.3), and it is the second
+    # step of the FTP fallback chain: newest evaluation at or before the ride,
+    # else this, else nothing. Without it, deleting the last evaluation has
+    # nothing to fall back to and the ride keeps a number no longer backed by
+    # anything. Provenance rather than a metric, so it lives on Ride and not
+    # on MetricFields — a lap has no head-unit reading of its own, it takes
+    # its parent ride's resolved value.
+    device_ftp_w: int | None = Field(default=None)
+    # The Karoo writes no threshold heart rate (only `max_heart_rate`, which
+    # is a different quantity and must not be borrowed for this). Populated
+    # only if a head unit ever does write `threshold_heart_rate`.
+    device_lthr_bpm: int | None = Field(default=None)
+
     # SVG "points" attribute for the list-card thumbnail, projected once at
     # import (brief §1: precompute rather than recompute per query). Without
     # it, rendering a 40-card Rides list means decompressing 40 GPS streams on

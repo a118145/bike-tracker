@@ -33,6 +33,11 @@ CHANNEL_SPECS: dict[str, tuple[str, str, str, str]] = {
     "temperature": ("temperature_c", "Temperature", "°C", "#14b8a6"),
 }
 
+# What the evaluation dialog's chart draws, fixed (masterplan §2.4.2 as
+# amended: the dialog chart is not switchable). Elevation is absent because
+# `build_chart_figure` always draws it as the base trace.
+EVAL_CHART_CHANNELS: list[str] = ["hr", "power"]
+
 # Chart points per channel. A three-hour ride is ~10,000 samples; past a
 # couple of thousand the extra points are narrower than a pixel and only cost
 # payload on the way to the browser.
@@ -93,6 +98,8 @@ def build_chart_figure(
     data: ChartData,
     active_channels: list[str],
     lap_span: tuple[float, float] | None = None,
+    *,
+    height_px: int = 280,
 ) -> go.Figure:
     """Assemble the y-t chart.
 
@@ -110,10 +117,12 @@ def build_chart_figure(
             whole ride rather than ripped out of it. Projected onto the
             ride-time axis here, so callers never deal with two coordinate
             systems.
+        height_px: Plot height. The evaluation dialog draws the same figure
+            small; everything else takes the default.
     """
     figure = go.Figure()
     if data.time_s.size == 0:
-        _apply_layout(figure, {}, show_legend=False)
+        _apply_layout(figure, {}, show_legend=False, height_px=height_px)
         return figure
 
     indices = chart_indices(len(data.time_s))
@@ -173,7 +182,7 @@ def build_chart_figure(
             layer="below",
         )
 
-    _apply_layout(figure, overlay_axes, show_legend=bool(active_channels))
+    _apply_layout(figure, overlay_axes, show_legend=bool(active_channels), height_px=height_px)
     return figure
 
 
@@ -192,10 +201,15 @@ def _apply_layout(
     overlay_axes: dict[str, dict[str, object]],
     *,
     show_legend: bool,
+    height_px: int = 280,
 ) -> None:
+    # The legend sits above the plot at y=1.16, which clears it at full height
+    # but lands on top of the traces on a short chart. Derived rather than
+    # passed in, so the caller only ever has to say how tall it wants it.
+    top = 28 if show_legend and height_px < 220 else 8
     figure.update_layout(
-        margin={"l": 48, "r": 16, "t": 8, "b": 32},
-        height=280,
+        margin={"l": 48, "r": 16, "t": top, "b": 32},
+        height=height_px,
         hovermode="x unified",
         showlegend=show_legend,
         legend={"orientation": "h", "y": 1.16, "x": 0},
@@ -255,6 +269,24 @@ def chart_skeleton(height: str = "280px") -> rx.Component:
         width="100%",
         height=height,
         border_radius="0.6em",
+    )
+
+
+def static_chart(figure: rx.Var[dict], height: str = "170px") -> rx.Component:
+    """A chart that only draws — no hover bridge, no scroll zoom.
+
+    Used inside the evaluation dialog. Deliberately **not** :func:`ride_chart`:
+    that one hands ``window.__btHover`` to ``on_hover``, which finds the map
+    with ``document.querySelector('.bt-map')`` and would drive the map sitting
+    behind the dialog. Scroll zoom is off too, so a scroll gesture scrolls the
+    dialog rather than rescaling a chart the user did not aim at.
+    """
+    return rx.plotly(
+        data=figure.to(go.Figure),
+        config={"displayModeBar": False, "scrollZoom": False, "doubleClick": "reset"},
+        use_resize_handler=True,
+        width="100%",
+        height=height,
     )
 
 

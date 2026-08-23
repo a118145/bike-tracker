@@ -67,6 +67,22 @@ CURSOR_TRACK_UID = "cursor-track"
 CURSOR_UID = "cursor"
 
 
+def heat_opacity(ride_count: int) -> float:
+    """Per-trace alpha for a heat map of ``ride_count`` rides.
+
+    A constant cannot serve both ends of the range. At 0.15 a single ride is
+    nearly invisible; at 0.45 ten rides saturate to solid everywhere and the
+    deviations the map exists to show disappear. This keeps a lone strand
+    legible against the shared spine at every count.
+
+    One ride is drawn **solid**: with nothing to stack against, transparency
+    only makes it look washed out.
+    """
+    if ride_count <= 1:
+        return 1.0
+    return max(0.12, min(0.55, 1.6 / ride_count))
+
+
 @dataclass
 class MapTrace:
     """One polyline to draw on a map.

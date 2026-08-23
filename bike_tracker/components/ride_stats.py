@@ -19,7 +19,7 @@ from dataclasses import dataclass
 
 import reflex as rx
 
-from ..states.ride_detail_state import RideDetailState
+from ..states.ride_detail_state import FitnessBadge, RideDetailState
 
 
 @dataclass(frozen=True)
@@ -40,6 +40,9 @@ class StatGroup:
     stats: list[Stat]
     channel: str = ""  # empty = not clickable
     columns: int = 3
+    # Saved FTP/baseline evaluations are shown on the Power card rather than
+    # as a card of their own (Arne's change to §2.4.2).
+    fitness_badges: bool = False
 
 
 # Order and membership follow docs/image.png top to bottom.
@@ -99,6 +102,7 @@ STAT_GROUPS: list[StatGroup] = [
         title="Power",
         icon="zap",
         channel="power",
+        fitness_badges=True,
         stats=[
             Stat("avg_power", "Ø Power", "W"),
             Stat("max_power", "Max. Power", "W"),
@@ -174,6 +178,44 @@ def _value(stat: Stat) -> rx.Component:
     )
 
 
+def _fitness_badge(badge: FitnessBadge) -> rx.Component:
+    """One saved evaluation: click to edit, garbage icon to delete.
+
+    ``stop_propagation`` on both is what keeps a badge click from also toggling
+    the power channel — the card itself is clickable. It works here because the
+    card is an ``rx.card`` with ``on_click``; AGENTS.md rule 26's warning is
+    about ``rx.link``, whose activation propagation cannot cancel.
+    """
+    return rx.badge(
+        rx.hstack(
+            rx.text(badge.label, size="1", weight="bold"),
+            rx.text(badge.value_text, size="1"),
+            rx.icon(
+                "trash-2",
+                size=12,
+                on_click=RideDetailState.delete_evaluation(badge.id).stop_propagation,
+                cursor="pointer",
+            ),
+            align="center",
+            spacing="1",
+        ),
+        variant="soft",
+        color_scheme=rx.cond(badge.kind == "ftp", "amber", "teal"),
+        size="1",
+        cursor="pointer",
+        title="Edit this evaluation",
+        on_click=RideDetailState.open_evaluation_badge(badge.id).stop_propagation,
+    )
+
+
+def _fitness_badges() -> rx.Component:
+    return rx.hstack(
+        rx.foreach(RideDetailState.fitness_badges, _fitness_badge),
+        spacing="1",
+        align="center",
+    )
+
+
 def _card(group: StatGroup) -> rx.Component:
     clickable = bool(group.channel)
     # `available_channels` is what the ride actually recorded: a ride with no
@@ -185,6 +227,7 @@ def _card(group: StatGroup) -> rx.Component:
         rx.hstack(
             rx.icon(group.icon, size=16, color=rx.color("accent", 10)),
             rx.text(group.title, size="2", weight="bold"),
+            *([_fitness_badges()] if group.fitness_badges else []),
             rx.spacer(),
             rx.cond(
                 active,

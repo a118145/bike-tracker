@@ -7,7 +7,13 @@ Hammerhead poller lands in ``sources/hammerhead.py`` later and calls the same
 """
 
 from .fit import FitParseError, ParsedRide, name_from_filename, parse
-from .importer import ImportResult, import_ride, resolve_bike, resolve_fitness
+from .importer import (
+    ImportResult,
+    import_ride,
+    refresh_ftp_dependent,
+    resolve_bike,
+    resolve_fitness,
+)
 from .seed import seed_bikes
 
 __all__ = [
@@ -17,6 +23,7 @@ __all__ = [
     "import_ride",
     "name_from_filename",
     "parse",
+    "refresh_ftp_dependent",
     "resolve_bike",
     "resolve_fitness",
     "seed_bikes",

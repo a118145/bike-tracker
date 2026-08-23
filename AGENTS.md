@@ -225,9 +225,11 @@ advice. Read it before editing.
     it is free: `import_ride` already has the decoded track in hand.
 
 28. **Heat-map opacity is a function of the ride count, not a constant.** See
-    `route_detail_state.heat_opacity`. A fixed alpha either makes one ride
-    invisible or saturates ten into a solid blob, losing the deviations the
-    map exists to show.
+    `map_view.heat_opacity`, shared by the route map and the dashboard. A
+    fixed alpha either makes one ride invisible or saturates ten into a solid
+    blob, losing the deviations the map exists to show. Count what is actually
+    *drawn*, not what exists: filtering the dashboard to one bike must not
+    leave its rides as faint as when all of them were stacked.
 
 29. **Unmount a map before reloading its page's state.** Reflex does not
     reset state on client-side navigation, so a detail page arrives holding
@@ -303,6 +305,13 @@ advice. Read it before editing.
     trace. `tests/test_view_models.py` pins the uid set across a lap
     selection.
 
+    **Filtering a map means blanking traces, never removing them.**
+    `dashboard_state.dashboard_traces` is the reference: every ride keeps its
+    trace on every re-plot and a deselected one gets `points=[]`. Do not reach
+    for `visible=False` — plotly's scattermap treats any trace whose `visible`
+    is not `True` as hidden and calls `removeLayer`, which is the same
+    destroy/create churn by another name.
+
     **The plot state vars hold a serialised `dict`, not a `go.Figure`.**
     Reflex's own figure serializer calls `plotly.io.to_json(figure)`, whose
     `remove_uids` argument defaults to `True`, so going through it deletes
@@ -316,6 +325,49 @@ advice. Read it before editing.
     a styleless figure to voyager, and a differing style *string* makes
     `updateMap` call `setStyle` and then reconcile traces on `styledata`,
     which fires before the style has finished loading.
+
+32. **Everything FTP-dependent is rewritten by `refresh_ftp_dependent`, and
+    nothing else.** Saving, editing or deleting an evaluation all call it, so
+    no path can leave a ride quoting a superseded FTP. It rewrites rides from
+    `valid_from` **forward** — an evaluation changes what "the last value
+    before the ride" resolves to for every later ride up to the next one —
+    and never touches earlier rides, which is the retroactive drift
+    `ftp_at_time_w` exists to prevent (brief §5.2).
+
+    **One fallback chain, in `resolve_fitness`, used by import and refresh
+    alike:** newest evaluation at or before the ride → the head unit's own
+    figure → nothing. Both callers pass through it so they cannot develop
+    different ideas of the order.
+
+    Step 2 is why `Ride.device_ftp_w` exists. The head unit's
+    `threshold_power` is only in the FIT file, which is not kept (§1.3), so it
+    is copied to a column at import. Without it, deleting the last evaluation
+    leaves the ride quoting *that deleted evaluation's* number — the column
+    still holds it, backed by nothing. Do **not** "keep whatever the column
+    holds" as a fallback; that was the first attempt and it is wrong for
+    exactly this case.
+
+    There is no step 2 for LTHR: the Karoo writes no threshold heart rate.
+    `max_heart_rate` is a different quantity and must never be substituted —
+    it would score training load against a number nobody measured.
+
+    `tests/test_fitness_eval.py` pins each step, and
+    `tests/test_fit_roundtrip.py` pins that import stores the device figure.
+    Every guard was checked by breaking the code and watching it fail.
+
+    Only `ftp_at_time_w`, `intensity_factor` and `tss` are recomputed, from
+    the stored normalized power and moving time. A full `summarize` would need
+    a `ChannelWindow`, which can only be built from a parsed FIT file.
+
+33. **`rx.slider` binds `on_value_commit`, never `on_change`.** `on_change`
+    fires continuously while a thumb is dragged, so a handler that recomputes
+    anything round-trips and re-serialises its figures on every mouse move —
+    the cost `components/hover_cursor.py` exists to avoid. `value` takes a
+    *sequence*, so a two-thumb range is one control, not two.
+
+    Note also that `rx.segmented_control`'s `on_change` is typed
+    `str | list[str]` because it supports multi-select; a single-select
+    handler must accept both.
 
 ## Type checking
 

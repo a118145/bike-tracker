@@ -14,6 +14,7 @@ The page has no nav entry of its own; ``NavState.active_route`` resolves
 
 import reflex as rx
 
+from ..components.fitness_dialog import fitness_dialog, fitness_menu
 from ..components.hover_cursor import hover_cursor_bridge
 from ..components.lap_bars import lap_bars
 from ..components.map_view import map_slot
@@ -123,6 +124,7 @@ def _header() -> rx.Component:
                 RideDetailState.set_route,
                 "Route",
             ),
+            fitness_menu(),
             spacing="4",
             align="center",
             wrap="wrap",
@@ -165,6 +167,7 @@ def _found() -> rx.Component:
         # straight to this dialog, so it has to be mounted here as well as on
         # the routes list.
         route_dialog(),
+        fitness_dialog(),
         spacing="4",
         align="start",
         width="100%",

@@ -23,6 +23,7 @@ from ..components.map_view import (
     MapTrace,
     blank_map_figure,
     build_map_figure,
+    heat_opacity,
 )
 from ..models import Ride, Route
 from ..navigation import routes as route_urls
@@ -207,22 +208,6 @@ class RouteDetailState(rx.State):
         )
         self.map_key = f"route-{route_id}"
         self.map_figure = figure_to_dict(built.figure)
-
-
-def heat_opacity(ride_count: int) -> float:
-    """Per-trace alpha for a heat map of ``ride_count`` rides.
-
-    A constant cannot serve both ends of the range. At 0.15 a single ride is
-    nearly invisible; at 0.45 ten rides saturate to solid everywhere and the
-    deviations the map exists to show disappear. This keeps a lone strand
-    legible against the shared spine at every count.
-
-    One ride is drawn **solid**: with nothing to stack against, transparency
-    only makes it look washed out.
-    """
-    if ride_count <= 1:
-        return 1.0
-    return max(0.12, min(0.55, 1.6 / ride_count))
 
 
 # ---------------------------------------------------------------------------
