@@ -17,7 +17,7 @@ from sqlmodel import Session, create_engine, select
 from bike_tracker.ingest.importer import recalculate_odometer
 from bike_tracker.ingest.seed import seed_bikes
 from bike_tracker.ingest.sources.file import import_file
-from bike_tracker.models import Bike, BikeForm, BikeSensor, Ride
+from bike_tracker.models import Bike, BikeForm, BikeSensor, Ride, analysis_rides
 from bike_tracker.utils.validation import parse_form
 
 from .conftest import EVENING_FIT
@@ -325,4 +325,44 @@ def test_the_shared_strap_alone_still_does_not_identify_a_bike(db_url: str) -> N
         assert ride is not None
         assert ride.bike_id is None
         assert ride.bike_id != canyon.id
+    engine.dispose()
+
+
+# ---------------------------------------------------------------------------
+# Excluding a ride from analysis (AGENTS.md rule 42)
+# ---------------------------------------------------------------------------
+
+
+def _import_excluded(session: Session) -> Ride:
+    seed_bikes(session)
+    import_file(EVENING_FIT, session)
+    ride = session.exec(select(Ride)).one()
+    ride.excluded = True
+    session.add(ride)
+    session.commit()
+    session.refresh(ride)
+    return ride
+
+
+def test_an_excluded_ride_is_not_in_analysis(db_url: str) -> None:
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        ride = _import_excluded(session)
+        assert session.exec(analysis_rides()).all() == []
+
+        ride.excluded = False
+        session.add(ride)
+        session.commit()
+        assert [r.id for r in session.exec(analysis_rides()).all()] == [ride.id]
+    engine.dispose()
+
+
+def test_an_excluded_ride_still_counts_on_the_odometer(db_url: str) -> None:
+    """Excluding says the data is unrepresentative, not that the ride did not
+    happen: it still wore the bike."""
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        ride = _import_excluded(session)
+        assert ride.bike_id is not None
+        assert recalculate_odometer(session, ride.bike_id) == pytest.approx(ride.distance_m)
     engine.dispose()

@@ -40,7 +40,7 @@ from ..components.ride_chart import (
     build_chart_figure,
     chart_indices,
 )
-from ..components.toast import notify_error, notify_success
+from ..components.toast import notify_error, notify_success, notify_warning
 from ..ingest import streams
 from ..ingest.importer import (
     create_manual_route,
@@ -164,6 +164,9 @@ class RideDetailState(rx.State):
     route_options: list[SelectOption] = []
     bike_value: str = ""
     route_value: str = ""
+    # Mirrors `not Ride.excluded` — the switch reads "In analysis", so the
+    # normal case is on.
+    in_analysis: bool = True
 
     # --- fitness evaluation (masterplan §2.4.2) ---------------------------
     # Saved evaluations for this ride, shown as badges on the Power card.
@@ -342,6 +345,7 @@ class RideDetailState(rx.State):
 
         self.title = ride.name
         self.subtitle = ride.start_time.strftime("%A, %d %B %Y at %H:%M")
+        self.in_analysis = not ride.excluded
 
         self._load_channels(stream)
         self._build_laps(ride, laps)
@@ -628,6 +632,50 @@ class RideDetailState(rx.State):
 
         log.info("ride_detail.bike.set", ride_id=self.ride_id, bike_id=new_bike_id)
         return notify_success(f"Bike set to {name}.")
+
+    def set_in_analysis(self, value: bool):
+        """Include the ride in analysis, or exclude it (AGENTS.md rule 42).
+
+        Only the route's statistics are precomputed from the flag, so the
+        route is the one thing to refresh. Fitness and the dashboard query
+        through ``analysis_rides`` on their next load. The FTP rewrite is not
+        triggered: excluding a ride changes no threshold, and the ride keeps a
+        correct TSS so that restoring it needs no recalculation.
+
+        An evaluation taken from this ride is deliberately left alone — it
+        governs every later ride's TSS, and whether it is still right is
+        Arne's call — but excluding the ride says its data is suspect, so the
+        toast points at it.
+        """
+        self.in_analysis = value
+        with rx.session() as session:
+            ride = session.get(Ride, int(self.ride_id))
+            if ride is None:
+                return notify_error("That ride no longer exists.")
+            if ride.excluded == (not value):
+                return None
+
+            # Read before the commit expires the instance (rule 24).
+            route_id = ride.route_id
+            ride.excluded = not value
+            session.add(ride)
+            session.commit()
+
+            if route_id is not None:
+                route = session.get(Route, route_id)
+                if route is not None:
+                    refresh_route_stats(session, route)
+
+        log.info("ride.exclude", ride_id=self.ride_id, excluded=not value)
+        if value:
+            return notify_success("Ride is back in analysis.")
+        evaluated = sorted({badge.label for badge in self.fitness_badges})
+        if evaluated:
+            return notify_warning(
+                f"Ride excluded from analysis. Check its {' and '.join(evaluated)} "
+                "evaluation on the Fitness page."
+            )
+        return notify_success("Ride excluded from analysis.")
 
     @rx.event
     async def set_route(self, value: str):

@@ -105,6 +105,8 @@ RIDE_ONLY_FIELDS = frozenset(
         # own and inherits its ride's resolved FTP.
         "device_ftp_w",
         "device_lthr_bpm",
+        # Curation, not a metric: a ride is in analysis or not as a whole.
+        "excluded",
         "external_id",
         "fit_hash",
         "has_trailer",

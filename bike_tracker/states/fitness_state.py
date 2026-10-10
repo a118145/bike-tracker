@@ -27,7 +27,7 @@ from .. import metrics
 from ..components.toast import notify_error, notify_success
 from ..components.zone_table import ZoneRow, zone_rows
 from ..ingest.importer import refresh_ftp_dependent
-from ..models import EVAL_BASELINE, EVAL_FTP, EVAL_LTHR, FitnessEval, Ride
+from ..models import EVAL_BASELINE, EVAL_FTP, EVAL_LTHR, FitnessEval, Ride, analysis_rides
 from ..utils.formatting import EMPTY, format_date, format_number
 from ..utils.logging import get_logger
 from ..utils.plotly_json import figure_to_dict
@@ -132,7 +132,7 @@ class FitnessState(rx.State):
             evaluations = session.exec(
                 select(FitnessEval).order_by(col(FitnessEval.valid_from))
             ).all()
-            rides = session.exec(select(Ride).order_by(col(Ride.start_time))).all()
+            rides = session.exec(analysis_rides().order_by(col(Ride.start_time))).all()
             efforts = [(ride.start_time, _ride_efforts(ride)) for ride in rides]
 
         self._apply_current(list(evaluations))

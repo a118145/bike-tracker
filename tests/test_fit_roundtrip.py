@@ -670,6 +670,76 @@ def test_moving_a_ride_off_a_shared_route_keeps_it(db_url: str) -> None:
     engine.dispose()
 
 
+def test_an_excluded_ride_leaves_its_route_statistics(db_url: str) -> None:
+    """Route averages describe the rides in analysis only (AGENTS.md rule 42)."""
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        seed_bikes(session)
+        first = _get(session, Ride, import_file(EVENING_FIT, session).ride_id)
+
+        repeat = parse(EVENING_FIT.read_bytes())
+        repeat.fit_hash = "a-second-lap-of-the-same-route"
+        second = import_ride(repeat, session, name="Evening Ride again").ride
+        assert second.route_id == first.route_id
+        shared = first.route_id
+        assert shared is not None
+
+        # Make the two distinguishable, so the average shows which counted.
+        second.distance_m = 1234.0
+        session.add(second)
+        session.commit()
+        route = refresh_route_stats(session, _get(session, Route, shared))
+        assert route is not None
+        assert route.ride_count == 2
+
+        second.excluded = True
+        session.add(second)
+        session.commit()
+
+        route = refresh_route_stats(session, _get(session, Route, shared))
+        assert route is not None
+        assert route.ride_count == 1
+        assert route.avg_distance_m == pytest.approx(first.distance_m)
+    engine.dispose()
+
+
+def test_excluding_a_routes_only_ride_keeps_the_route(db_url: str) -> None:
+    """Emptiness counts every ride; otherwise restoring could not bring it back.
+
+    With no ride in analysis the averages do not exist, so they are ``None`` —
+    a 0.0 would reach the MCP layer as a real figure (rule 13).
+    """
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        seed_bikes(session)
+        ride = _get(session, Ride, import_file(EVENING_FIT, session).ride_id)
+        route_id = ride.route_id
+        assert route_id is not None
+        distance_m = ride.distance_m
+
+        ride.excluded = True
+        session.add(ride)
+        session.commit()
+
+        route = refresh_route_stats(session, _get(session, Route, route_id))
+        assert route is not None, "excluding the only ride pruned its route"
+        assert route.ride_count == 0
+        assert route.avg_distance_m is None
+        assert route.avg_elevation_gain_m is None
+        assert route.avg_moving_time_s is None
+
+        ride = _get(session, Ride, ride.id)
+        ride.excluded = False
+        session.add(ride)
+        session.commit()
+
+        route = refresh_route_stats(session, _get(session, Route, route_id))
+        assert route is not None
+        assert route.ride_count == 1
+        assert route.avg_distance_m == pytest.approx(distance_m)
+    engine.dispose()
+
+
 def test_importing_never_prunes_the_route_it_just_created(db_url: str) -> None:
     """assign_route commits the ride first, so the new route is never empty."""
     engine = create_engine(db_url)

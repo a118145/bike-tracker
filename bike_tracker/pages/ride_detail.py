@@ -2,7 +2,7 @@
 
 Layout order, top to bottom, is the spec:
 
-1. heading, back link, bike dropdown, route dropdown
+1. heading, back link, "In analysis" switch, bike dropdown, route dropdown
 2. full-page map
 3. y-t chart — elevation always, extra channels toggled by the stat cards
 4. lap bars, when the ride has more than one lap
@@ -90,6 +90,28 @@ def _selector(
     )
 
 
+def _analysis_switch() -> rx.Component:
+    """Include or exclude the ride from analysis (AGENTS.md rule 42).
+
+    Styled like :func:`_selector` so the header row reads as one set of
+    controls. On means the ride counts, which is the normal case.
+    """
+    return rx.hstack(
+        rx.icon("chart-line", size=15, color=rx.color("gray", 10)),
+        rx.text("In analysis", size="2", color_scheme="gray"),
+        rx.switch(
+            checked=RideDetailState.in_analysis,
+            on_change=RideDetailState.set_in_analysis,
+            # While stale the switch still shows the previous ride's flag
+            # (RideDetailState.stale), and a click would write its opposite
+            # to the ride being loaded.
+            disabled=RideDetailState.stale,
+        ),
+        align="center",
+        spacing="2",
+    )
+
+
 def _header() -> rx.Component:
     return rx.hstack(
         rx.vstack(
@@ -110,6 +132,7 @@ def _header() -> rx.Component:
         ),
         rx.spacer(),
         rx.hstack(
+            _analysis_switch(),
             _selector(
                 "bike",
                 RideDetailState.bike_options,

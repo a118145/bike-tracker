@@ -19,7 +19,7 @@ from sqlmodel import col, select
 
 from .. import metrics
 from ..components.toast import notify_error, notify_success
-from ..models import Ride, Route, RouteForm
+from ..models import Ride, Route, RouteForm, in_analysis
 from ..navigation import routes as route_urls
 from ..utils.formatting import format_distance_km, format_duration, format_number
 from ..utils.logging import get_logger
@@ -86,9 +86,9 @@ class RoutesState(rx.State):
             # One grouped query for the tiebreak, not one per card.
             latest = dict(
                 session.exec(
-                    select(col(Ride.route_id), func.max(col(Ride.start_time))).group_by(
-                        col(Ride.route_id)
-                    )
+                    select(col(Ride.route_id), func.max(col(Ride.start_time)))
+                    .where(in_analysis())
+                    .group_by(col(Ride.route_id))
                 ).all()
             )
 

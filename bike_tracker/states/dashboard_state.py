@@ -30,7 +30,7 @@ from ..components.map_view import (
     heat_opacity,
 )
 from ..components.zone_table import ZoneRow, zone_rows
-from ..models import EVAL_FTP, EVAL_LTHR, Bike, FitnessEval, Ride
+from ..models import EVAL_FTP, EVAL_LTHR, Bike, FitnessEval, Ride, analysis_rides
 from ..utils.formatting import EMPTY, format_date, format_distance_km, format_number
 from ..utils.logging import get_logger
 from ..utils.plotly_json import figure_to_dict
@@ -207,7 +207,9 @@ class DashboardState(rx.State):
         yield
 
         with rx.session() as session:
-            rides = list(session.exec(select(Ride).order_by(col(Ride.start_time))).all())
+            # Rides in analysis only: the totals and the heat map describe
+            # training. The odometer on the bikes page counts everything.
+            rides = list(session.exec(analysis_rides().order_by(col(Ride.start_time))).all())
             bikes = list(session.exec(select(Bike).order_by(col(Bike.name))).all())
             evaluations = list(
                 session.exec(select(FitnessEval).order_by(col(FitnessEval.valid_from))).all()

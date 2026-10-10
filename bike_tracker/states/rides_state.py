@@ -66,6 +66,8 @@ class RideCard:
     evaluations: list[RideEvalBadge] = field(default_factory=list)
     preview_points: str = ""
     detail_href: str = ""
+    # Excluded from analysis (AGENTS.md rule 42): still listed, but marked.
+    excluded: bool = False
 
 
 class RidesState(rx.State):
@@ -221,6 +223,7 @@ def _to_card(
         evaluations=evaluations.get(ride.id or 0, []),
         preview_points=ride.preview_points,
         detail_href=f"{routes.RIDES_ROUTE}/{ride.id}",
+        excluded=ride.excluded,
     )
 
 

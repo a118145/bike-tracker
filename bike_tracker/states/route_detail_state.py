@@ -59,6 +59,9 @@ class RideRow:
     tss: str = ""
     avg_hr: str = ""
     detail_href: str = ""
+    # Excluded from analysis: listed, dimmed, and left out of the map and the
+    # summary card (AGENTS.md rule 42).
+    excluded: bool = False
 
 
 class RouteDetailState(rx.State):
@@ -151,11 +154,14 @@ class RouteDetailState(rx.State):
             )
             name = route.name
 
+        # The table lists every ride; everything that summarises the route
+        # describes only the rides in analysis.
+        counted = [ride for ride in rides if not ride.excluded]
         self.title = name
-        self.subtitle = "Ridden once" if len(rides) == 1 else f"Ridden {len(rides)} times"
+        self.subtitle = _ridden(len(counted), len(rides) - len(counted))
         self.rides = [_to_row(ride) for ride in rides]
-        self.stats = _route_stats(route, rides)
-        self._build_map(route_id, rides)
+        self.stats = _route_stats(route, counted)
+        self._build_map(route_id, counted)
         # Last, with no `yield` in between, so the flag and the figure land in
         # one delta.
         self.loading = False
@@ -215,6 +221,17 @@ class RouteDetailState(rx.State):
 # ---------------------------------------------------------------------------
 
 
+def _ridden(counted: int, excluded: int) -> str:
+    """``"Ridden 4 times · 1 excluded"`` — the count is rides in analysis."""
+    if counted == 0:
+        text = "No rides in analysis"
+    elif counted == 1:
+        text = "Ridden once"
+    else:
+        text = f"Ridden {counted} times"
+    return f"{text} · {excluded} excluded" if excluded else text
+
+
 def _to_row(ride: Ride) -> RideRow:
     return RideRow(
         id=ride.id or 0,
@@ -228,6 +245,7 @@ def _to_row(ride: Ride) -> RideRow:
         tss=format_number(ride.tss),
         avg_hr=format_number(ride.avg_hr_bpm),
         detail_href=f"{route_urls.RIDES_ROUTE}/{ride.id}",
+        excluded=ride.excluded,
     )
 
 
