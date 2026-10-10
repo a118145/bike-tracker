@@ -21,8 +21,9 @@ wheels/
 .ruff_cache/
 .pytest_cache/
 
-# Reflex
-reflex.lock
+# Reflex. `reflex.lock/` is NOT ignored: it is Reflex's frozen JS lockfile
+# (bun.lock + package.json), the frontend counterpart of uv.lock. Without it a
+# CI build resolves fresh JS package versions every time.
 
 # FIT drop folder — ride files are never persisted, only imported
 data/

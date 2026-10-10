@@ -1,0 +1,113 @@
+# Build the image on every push to main; publish it only for a version tag.
+#
+#   git tag v0.2.0 && git push origin v0.2.0
+#
+# pushes  <repo>:0.2.0, <repo>:0.2, <repo>:latest and <repo>:sha-<short>.
+# A push to main builds and checks the image but publishes nothing, so
+# rerunning the Ansible playbook only ever pulls a deliberate release.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   DOCKERHUB_USERNAME  Docker Hub user name
+#   DOCKERHUB_TOKEN     Docker Hub personal access token, scope Read/Write/Delete
+#   DOCKERHUB_REPO      <user>/<repo>, lowercase
+# Because the repo name is a secret, it shows as *** in these logs.
+#
+# Nothing in this workflow writes an env file or passes a build arg: the image
+# is built without any secret, and docker/check-image.sh enforces that before
+# anything is pushed.
+name: Build and push image
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Never cancel a release half-way through a push.
+  cancel-in-progress: false
+
+env:
+  CI_IMAGE: ci-image:test
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/setup-buildx-action@v3
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKERHUB_REPO }}
+          # `latest` is added automatically for a semver tag (flavor latest=auto)
+          # and never for a pre-release such as v0.3.0-rc1.
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      # Build once and load it into the runner's Docker, so the image that is
+      # checked below is byte-for-byte the image that gets pushed.
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: |
+            ${{ steps.meta.outputs.tags }}
+            ${{ env.CI_IMAGE }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Check the image for secrets and data
+        run: docker/check-image.sh "$CI_IMAGE"
+
+      # Offline, on an empty volume, with no environment: the image must
+      # migrate a fresh database and report healthy on its own.
+      - name: Smoke test
+        run: |
+          docker run -d --name smoke --init --network none "$CI_IMAGE"
+          for i in $(seq 1 60); do
+            if docker exec smoke python -c "import sys, urllib.request; sys.exit(urllib.request.urlopen('http://127.0.0.1:3000/_health', timeout=4).status != 200)" 2>/dev/null; then
+              echo "healthy after ~$((i * 3)) s"; docker rm -f smoke >/dev/null; exit 0
+            fi
+            if [ "$(docker inspect -f '{{.State.Running}}' smoke)" != "true" ]; then break; fi
+            sleep 3
+          done
+          echo "container did not become healthy"; docker logs smoke; exit 1
+
+      - name: Log in to Docker Hub
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          REPO: ${{ secrets.DOCKERHUB_REPO }}
+        run: docker push --all-tags "$REPO"
+
+      # The repository description on Docker Hub mirrors README.md. This call
+      # is why the token needs the Delete scope, not just Read/Write.
+      - name: Update Docker Hub description
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ secrets.DOCKERHUB_REPO }}
+          readme-filepath: ./README.md
