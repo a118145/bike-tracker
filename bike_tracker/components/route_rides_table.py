@@ -30,6 +30,10 @@ def _row(ride: RideRow) -> rx.Component:
         rx.table.cell(ride.tss),
         rx.table.cell(ride.avg_hr),
         align="center",
+        # Excluded from analysis: still listed, but visibly not counted in
+        # the summary card or the map above.
+        opacity=rx.cond(ride.excluded, "0.45", "1"),
+        title=rx.cond(ride.excluded, "Excluded from analysis", ""),
     )
 
 

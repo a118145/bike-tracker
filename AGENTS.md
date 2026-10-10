@@ -212,7 +212,9 @@ advice. Read it before editing.
     `refresh_route_stats`.** That is the one choke point every count change
     passes through — it runs on both sides of a reassignment — so a hook
     anywhere else is bypassable. It returns `Route | None`; never call it
-    before the ride's new `route_id` is committed.
+    before the ride's new `route_id` is committed. "No rides" means no rides
+    *at all*: an excluded ride keeps its route alive, and only the statistics
+    skip it (rule 42).
 
 26. **A card carrying an inline action must not be an `rx.link`.**
     `stop_propagation` halts bubbling but does not cancel an anchor's
@@ -477,6 +479,20 @@ advice. Read it before editing.
     the most recent ride of each group. Rides, laps and streams are never
     touched. It is idempotent — verify by running it twice.
 
+42. **"In analysis" is one query: `models.ride.analysis_rides()`** (and its
+    predicate `in_analysis()` for column or aggregate queries). A ride can be
+    excluded because it is real but unrepresentative — a test with implausible
+    power — and the ride list is what the MCP layer will hand an LLM.
+    Everything that describes *training* goes through it: fitness, dashboard,
+    route statistics and map, and the MCP when it lands. Everything that
+    describes the *bike or the import* deliberately does not: odometer,
+    deduplication, `refresh_ftp_dependent`, the route backfill and
+    `assign_route`. Never write `excluded == False` by hand; a second
+    definition is how the app and the LLM end up disagreeing about one ride.
+
+    An excluded ride stays in the rides list and on its route's table,
+    dimmed, so it can be found and restored. Its `FitnessEval` is left alone —
+    it governs every later ride's TSS — and the toggle warns instead.
 
 ## Type checking
 

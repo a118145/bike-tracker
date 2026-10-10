@@ -440,6 +440,12 @@ def refresh_route_stats(session: Session, route: Route) -> Route | None:
     created always has at least one ride and cannot be deleted out from under
     the caller.
 
+    Emptiness is judged on **every** ride, the statistics only on rides in
+    analysis. Pruning on the analysed count would delete a route the moment
+    its last ride was excluded, and restoring that ride could not bring it
+    back. A route whose rides are all excluded therefore stays, with a count
+    of zero and no averages.
+
     Returns the route, or ``None`` when it was pruned — so a caller cannot go
     on holding a row that no longer exists.
     """
@@ -452,13 +458,18 @@ def refresh_route_stats(session: Session, route: Route) -> Route | None:
         log.info("route.pruned", route_id=route_id, name=name)
         return None
 
-    route.ride_count = len(rides)
-    route.avg_distance_m = sum(r.distance_m for r in rides) / len(rides)
-    route.avg_elevation_gain_m = sum(r.elevation_gain_m for r in rides) / len(rides)
-    route.avg_moving_time_s = sum(r.moving_time_s for r in rides) / len(rides)
+    counted = [r for r in rides if not r.excluded]
+    route.ride_count = len(counted)
+    route.avg_distance_m = _mean([r.distance_m for r in counted])
+    route.avg_elevation_gain_m = _mean([r.elevation_gain_m for r in counted])
+    route.avg_moving_time_s = _mean([r.moving_time_s for r in counted])
     session.add(route)
     session.commit()
     return route
+
+
+def _mean(values: list[float]) -> float | None:
+    return sum(values) / len(values) if values else None
 
 
 def create_manual_route(session: Session, ride: Ride, base_name: str) -> Route:

@@ -13,8 +13,9 @@ identity and relations, a lap's position within its ride.
 from datetime import UTC, datetime
 
 from reflex.model import ModelRegistry
-from sqlalchemy import JSON, Column
-from sqlmodel import Field, SQLModel
+from sqlalchemy import JSON, Column, ColumnElement
+from sqlmodel import Field, SQLModel, col, select
+from sqlmodel.sql.expression import SelectOfScalar
 
 from .metric_fields import LOAD_SOURCE_HR, LOAD_SOURCE_POWER, MetricFields
 
@@ -26,6 +27,8 @@ __all__ = [
     "Ride",
     "RideNote",
     "RideStream",
+    "analysis_rides",
+    "in_analysis",
 ]
 
 
@@ -51,6 +54,14 @@ class Ride(MetricFields, table=True):
     # Croozer trailer, trekking bike only (brief §2). Default is "no trailer";
     # without the flag, trailer rides poison every comparison they appear in.
     has_trailer: bool = Field(default=False)
+
+    # --- curation ------------------------------------------------------------
+    # A ride that really happened but describes no training — a test with
+    # implausible power, say. It stays in the rides list and on the odometer,
+    # and drops out of everything that describes training: fitness, dashboard,
+    # route statistics and the MCP layer. Never filter on it by hand; use
+    # :func:`analysis_rides`, so the app and the LLM cannot disagree.
+    excluded: bool = Field(default=False, index=True)
 
     # --- identity in time --------------------------------------------------
     start_time: datetime = Field(index=True)
@@ -97,6 +108,24 @@ class Ride(MetricFields, table=True):
     # `import_ride` already has the decoded track in hand, so writing it here
     # is one extra simplify call at import and none afterwards.
     map_points: list[list[float]] = Field(default_factory=list, sa_column=Column(JSON))
+
+
+def in_analysis() -> ColumnElement[bool]:
+    """The predicate behind :func:`analysis_rides`, for queries that select
+    columns or aggregates rather than whole rides."""
+    return col(Ride.excluded).is_(False)
+
+
+def analysis_rides() -> SelectOfScalar[Ride]:
+    """Every ride that counts as training data — the one definition of it.
+
+    Fitness, dashboard and route statistics query through this, and so will
+    the MCP layer, so they all describe the same set of rides. The odometer,
+    deduplication, the FTP rewrite and the route backfill deliberately do not:
+    an excluded ride still wore the bike and still exists. See AGENTS.md
+    rule 42. Callers add their own ordering.
+    """
+    return select(Ride).where(in_analysis())
 
 
 @ModelRegistry.register

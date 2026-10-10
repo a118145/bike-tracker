@@ -80,6 +80,15 @@ def _ride_card(ride: RideCard) -> rx.Component:
                             color_scheme=rx.cond(ride.bike_assigned, "gray", "red"),
                         ),
                         rx.foreach(ride.evaluations, _eval_badge),
+                        rx.cond(
+                            ride.excluded,
+                            rx.badge(
+                                rx.icon("eye-off", size=12),
+                                "Excluded",
+                                variant="outline",
+                                color_scheme="gray",
+                            ),
+                        ),
                         spacing="2",
                         align="center",
                         wrap="wrap",
@@ -103,6 +112,9 @@ def _ride_card(ride: RideCard) -> rx.Component:
             ),
             width="100%",
             height="100%",
+            # Dimmed rather than hidden: the list is where a ride is found
+            # again to be restored.
+            opacity=rx.cond(ride.excluded, "0.6", "1"),
             style={"_hover": {"borderColor": rx.color("accent", 8)}},
         ),
         href=ride.detail_href,

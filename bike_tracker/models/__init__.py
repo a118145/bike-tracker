@@ -32,6 +32,8 @@ from .ride import (
     Ride,
     RideNote,
     RideStream,
+    analysis_rides,
+    in_analysis,
 )
 from .route import Route, RouteForm
 
@@ -60,6 +62,8 @@ __all__ = [
     "RideStream",
     "Route",
     "RouteForm",
+    "analysis_rides",
     "get_account",
+    "in_analysis",
     "now_utc",
 ]

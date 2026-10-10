@@ -23,11 +23,14 @@ class Route(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     name: str = Field(index=True)
 
-    # Averages over the rides currently assigned to this route. Recomputed on
-    # assignment change rather than at query time (brief §1: precompute).
-    avg_distance_m: float = Field(default=0.0)
-    avg_elevation_gain_m: float = Field(default=0.0)
-    avg_moving_time_s: float = Field(default=0.0)
+    # Averages over the rides currently assigned to this route that count in
+    # analysis (`Ride.excluded` unset). Recomputed on assignment or exclusion
+    # change rather than at query time (brief §1: precompute). `None` when no
+    # ride on the route counts: the average does not exist, and 0.0 would
+    # reach the MCP layer as a real value.
+    avg_distance_m: float | None = Field(default=None)
+    avg_elevation_gain_m: float | None = Field(default=None)
+    avg_moving_time_s: float | None = Field(default=None)
     ride_count: int = Field(default=0)
 
     # Simplified representative polyline as [[lat, lon], ...]. Simplified, not
