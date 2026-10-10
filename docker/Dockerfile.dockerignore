@@ -1,0 +1,26 @@
+# Allow-list for the image build context (BuildKit reads <Dockerfile>.dockerignore
+# next to the Dockerfile in preference to a root .dockerignore).
+#
+# Everything is excluded first; only what the app needs at runtime is let back
+# in. A new secret, database or scratch file therefore stays out by default —
+# that is the point. Add a path here only if the running app reads it.
+*
+
+!pyproject.toml
+!uv.lock
+!rxconfig.py
+!alembic.ini
+!alembic/
+!assets/
+!bike_tracker/
+!docker/entrypoint.sh
+# Reflex's frozen JS lockfile — the frontend counterpart of uv.lock.
+!reflex.lock/
+
+# Re-excluded inside the allowed directories.
+**/__pycache__
+**/*.py[cod]
+**/.env*
+**/*.db
+**/*.sqlite*
+assets/external/

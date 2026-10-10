@@ -1,0 +1,26 @@
+# Reference for the Ansible role on the homeserver — CI does not use this file.
+# Copy the service into the playbook's compose template and fill in the
+# <placeholders>. See docker/DEPLOY.md for the surrounding steps.
+services:
+  bike-tracker:
+    # :latest follows releases. To hold or roll back, pin a version: :0.2.0
+    image: <dockerhub-user>/bike-tracker:latest
+    pull_policy: always
+    # Reaps orphaned node/bun children and forwards SIGTERM; `docker stop`
+    # then ends the app cleanly in about a second.
+    init: true
+    restart: unless-stopped
+    ports:
+      # LAN address only, never 0.0.0.0 (brief §8).
+      # The host port must stay 3000: the frontend keeps the container's port
+      # when it builds its websocket URL, so a different host port leaves
+      # every page without a backend.
+      - "<homeserver-lan-ip>:3000:3000"
+    # Written by Ansible from the vault, mode 0600. Never committed, never
+    # baked into the image. Keys: see .env.example.
+    env_file: /opt/bike-tracker/app.env
+    volumes:
+      # Database and FIT drop folder. Must be owned by uid 1000 (the image's
+      # `reflex` user). Back this directory up — it is the only copy of the
+      # ride notes (brief §8).
+      - /opt/bike-tracker/data:/app/data
