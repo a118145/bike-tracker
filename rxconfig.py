@@ -30,4 +30,5 @@ config = rx.Config(
         rx.plugins.TailwindV4Plugin(),
         rx.plugins.SitemapPlugin(),
     ],
+    show_built_with_reflex=False
 )
