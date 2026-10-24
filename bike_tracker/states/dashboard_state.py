@@ -30,7 +30,15 @@ from ..components.map_view import (
     heat_opacity,
 )
 from ..components.zone_table import ZoneRow, zone_rows
-from ..models import EVAL_FTP, EVAL_LTHR, Bike, FitnessEval, Ride, analysis_rides
+from ..models import (
+    EVAL_FTP,
+    EVAL_LTHR,
+    Bike,
+    FitnessEval,
+    Ride,
+    analysis_rides,
+    latest_evaluations,
+)
 from ..utils.formatting import EMPTY, format_date, format_distance_km, format_number
 from ..utils.logging import get_logger
 from ..utils.plotly_json import figure_to_dict
@@ -266,9 +274,7 @@ class DashboardState(rx.State):
         A direct query rather than ``get_state(FitnessState)``: that state's
         load also builds three plotly figures this page has no use for.
         """
-        latest: dict[str, FitnessEval] = {}
-        for record in evaluations:  # ordered by valid_from, so the last wins
-            latest[record.type] = record
+        latest = latest_evaluations(evaluations)
 
         ftp = latest.get(EVAL_FTP)
         lthr = latest.get(EVAL_LTHR)

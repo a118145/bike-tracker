@@ -14,14 +14,13 @@ from datetime import datetime
 from typing import Any
 
 import reflex as rx
-from sqlalchemy import func
 from sqlmodel import col, select
 
 from .. import metrics
 from ..components.toast import notify_error, notify_success
-from ..models import Ride, Route, RouteForm, in_analysis
+from ..models import Route, RouteForm, last_ridden_by_route
 from ..navigation import routes as route_urls
-from ..utils.formatting import format_distance_km, format_duration, format_number
+from ..utils.formatting import format_date, format_distance_km, format_duration, format_number
 from ..utils.logging import get_logger
 from ..utils.validation import parse_form
 
@@ -84,18 +83,12 @@ class RoutesState(rx.State):
         with rx.session() as session:
             all_routes = session.exec(select(Route)).all()
             # One grouped query for the tiebreak, not one per card.
-            latest = dict(
-                session.exec(
-                    select(col(Ride.route_id), func.max(col(Ride.start_time)))
-                    .where(in_analysis())
-                    .group_by(col(Ride.route_id))
-                ).all()
-            )
+            latest = last_ridden_by_route(session)
 
-        cards = [(route, latest.get(route.id)) for route in all_routes]
+        cards = [(route, latest.get(route.id or 0)) for route in all_routes]
         # Most-ridden first — the list should answer "which are my regulars".
         # Ties go to whichever was ridden most recently.
-        cards.sort(key=lambda pair: (pair[0].ride_count, pair[1] or ""), reverse=True)
+        cards.sort(key=lambda pair: (pair[0].ride_count, pair[1] or datetime.min), reverse=True)
 
         self.routes = [_to_card(route, last) for route, last in cards]
         log.info("routes.load", count=len(self.routes))
@@ -204,7 +197,7 @@ class RoutesState(rx.State):
 # ---------------------------------------------------------------------------
 
 
-def _to_card(route: Route, last_ridden: Any) -> RouteCard:
+def _to_card(route: Route, last_ridden: datetime | None) -> RouteCard:
     return RouteCard(
         id=route.id or 0,
         name=route.name,
@@ -215,7 +208,7 @@ def _to_card(route: Route, last_ridden: Any) -> RouteCard:
         ride_summary=(
             "Ridden once" if route.ride_count == 1 else f"Ridden {route.ride_count} times"
         ),
-        last_ridden=_format_last(last_ridden),
+        last_ridden=format_date(last_ridden, "%d %b %Y"),
         # Projected per load rather than stored: `route.points` is already
         # simplified to a few hundred points and the projection thins to 120,
         # so this is sub-millisecond and touches no stream. Only the *ride*
@@ -223,19 +216,3 @@ def _to_card(route: Route, last_ridden: Any) -> RouteCard:
         preview_points=metrics.project_svg_points([(p[0], p[1]) for p in route.points]),
         detail_href=f"{route_urls.ROUTES_ROUTE}/{route.id}",
     )
-
-
-def _format_last(value: Any) -> str:
-    """The grouped ``max(start_time)`` comes back as a string on SQLite."""
-    if not value:
-        return ""
-    if isinstance(value, datetime):
-        return value.strftime("%d %b %Y")
-
-    text = str(value)
-    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
-        try:
-            return datetime.strptime(text, fmt).strftime("%d %b %Y")
-        except ValueError:
-            continue
-    return text[:10]

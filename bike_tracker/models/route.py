@@ -10,12 +10,16 @@ The averages that column was meant to feed are stored here instead, updated
 whenever a ride joins or leaves.
 """
 
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from pydantic import field_validator
 from reflex.model import ModelRegistry
 from sqlalchemy import JSON, Column
-from sqlmodel import Field, SQLModel
+from sqlmodel import Field, Session, SQLModel, col, func, select
+
+from .ride import Ride, in_analysis
 
 
 @ModelRegistry.register
@@ -67,3 +71,70 @@ class RouteForm(SQLModel):
         if not stripped:
             raise ValueError("Name must not be blank.")
         return stripped
+
+
+@dataclass(frozen=True)
+class RouteSummary:
+    """What the route card says beyond the stored averages. ``None`` = no data."""
+
+    fastest_moving_time_s: float | None = None
+    fastest_on: datetime | None = None
+    avg_tss: float | None = None
+    best_tss: float | None = None
+
+
+def route_summary(rides: Sequence[Ride]) -> RouteSummary:
+    """Fastest pass and TSS figures over ``rides`` — pass only rides in analysis.
+
+    Shared by the route detail card and the REST API, so the two report the
+    same fastest pass. Ties go to the earliest ride: the record was set then.
+    """
+    times = [r.moving_time_s for r in rides if r.moving_time_s > 0]
+    loads = [r.tss for r in rides if r.tss is not None]
+
+    fastest = min(times) if times else None
+    fastest_ride = (
+        min((r for r in rides if r.moving_time_s == fastest), key=lambda r: r.start_time)
+        if fastest is not None
+        else None
+    )
+    return RouteSummary(
+        fastest_moving_time_s=fastest,
+        fastest_on=fastest_ride.start_time if fastest_ride else None,
+        avg_tss=sum(loads) / len(loads) if loads else None,
+        best_tss=max(loads) if loads else None,
+    )
+
+
+def last_ridden_by_route(session: Session) -> dict[int, datetime]:
+    """When each route was last ridden, counting rides in analysis only.
+
+    One grouped query for a whole list. SQLite hands an aggregated timestamp
+    back as a string rather than a ``datetime``, so it is parsed here, once,
+    for the Routes page and the REST API alike.
+    """
+    rows = session.exec(
+        select(col(Ride.route_id), func.max(col(Ride.start_time)))
+        .where(in_analysis())
+        .group_by(col(Ride.route_id))
+    ).all()
+    found: dict[int, datetime] = {}
+    for route_id, value in rows:
+        parsed = _as_datetime(value)
+        if route_id is not None and parsed is not None:
+            found[route_id] = parsed
+    return found
+
+
+def _as_datetime(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if not value:
+        return None
+    text = str(value)
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    return None

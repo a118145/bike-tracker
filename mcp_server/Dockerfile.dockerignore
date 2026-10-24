@@ -1,0 +1,12 @@
+# Allow-list for the MCP image's build context (BuildKit reads
+# <Dockerfile>.dockerignore next to the Dockerfile). Everything is excluded
+# first; only what the server runs on is let back in.
+*
+
+!pyproject.toml
+!uv.lock
+!bike_tracker_mcp/
+
+**/__pycache__
+**/*.py[cod]
+**/.env*

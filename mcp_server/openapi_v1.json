@@ -1,0 +1,3757 @@
+{
+  "components": {
+    "schemas": {
+      "ActivitiesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "activities": {
+            "items": {
+              "$ref": "#/components/schemas/ActivityRow"
+            },
+            "title": "Activities",
+            "type": "array"
+          },
+          "bike_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bike Id"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "from_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Date"
+          },
+          "include_excluded": {
+            "title": "Include Excluded",
+            "type": "boolean"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "route_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Route Id"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag"
+          },
+          "to_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Date"
+          }
+        },
+        "required": [
+          "from_date",
+          "to_date",
+          "bike_id",
+          "route_id",
+          "tag",
+          "include_excluded",
+          "limit",
+          "count",
+          "activities"
+        ],
+        "title": "ActivitiesOut",
+        "type": "object"
+      },
+      "ActivityOut": {
+        "properties": {
+          "avg_altitude_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Altitude M"
+          },
+          "avg_cadence_rpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Cadence Rpm"
+          },
+          "avg_grade_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Grade Pct"
+          },
+          "avg_hr_bpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Hr Bpm"
+          },
+          "avg_power_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Power W"
+          },
+          "avg_speed_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Speed Ms"
+          },
+          "avg_temperature_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Temperature C"
+          },
+          "avg_vam_mph": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Vam Mph"
+          },
+          "best_power_1200s_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 1200S W"
+          },
+          "best_power_15s_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 15S W"
+          },
+          "best_power_300s_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 300S W"
+          },
+          "best_power_30s_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 30S W"
+          },
+          "best_power_3600s_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 3600S W"
+          },
+          "best_power_5s_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 5S W"
+          },
+          "best_power_600s_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 600S W"
+          },
+          "best_power_60s_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 60S W"
+          },
+          "bike_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bike Id"
+          },
+          "bike_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bike Name"
+          },
+          "calories_kcal": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calories Kcal"
+          },
+          "decoupling_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decoupling Pct"
+          },
+          "distance_m": {
+            "default": 0.0,
+            "title": "Distance M",
+            "type": "number"
+          },
+          "elapsed_time_s": {
+            "default": 0.0,
+            "title": "Elapsed Time S",
+            "type": "number"
+          },
+          "elevation_gain_m": {
+            "default": 0.0,
+            "title": "Elevation Gain M",
+            "type": "number"
+          },
+          "elevation_loss_m": {
+            "default": 0.0,
+            "title": "Elevation Loss M",
+            "type": "number"
+          },
+          "energy_kj": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Energy Kj"
+          },
+          "evaluations": {
+            "items": {
+              "$ref": "#/components/schemas/EvaluationOut"
+            },
+            "title": "Evaluations",
+            "type": "array"
+          },
+          "excluded": {
+            "title": "Excluded",
+            "type": "boolean"
+          },
+          "ftp_at_time_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ftp At Time W"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "intensity_factor": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intensity Factor"
+          },
+          "laps": {
+            "items": {
+              "$ref": "#/components/schemas/LapOut"
+            },
+            "title": "Laps",
+            "type": "array"
+          },
+          "left_balance_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Left Balance Pct"
+          },
+          "load_source": {
+            "default": "hr",
+            "title": "Load Source",
+            "type": "string"
+          },
+          "local_date": {
+            "format": "date",
+            "title": "Local Date",
+            "type": "string"
+          },
+          "local_start_time": {
+            "title": "Local Start Time",
+            "type": "string"
+          },
+          "lthr_at_time_bpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lthr At Time Bpm"
+          },
+          "max_altitude_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Altitude M"
+          },
+          "max_cadence_rpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Cadence Rpm"
+          },
+          "max_grade_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Grade Pct"
+          },
+          "max_hr_bpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Hr Bpm"
+          },
+          "max_power_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Power W"
+          },
+          "max_speed_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Speed Ms"
+          },
+          "max_temperature_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Temperature C"
+          },
+          "min_altitude_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Altitude M"
+          },
+          "min_cadence_rpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Cadence Rpm"
+          },
+          "min_grade_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Grade Pct"
+          },
+          "min_hr_bpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Hr Bpm"
+          },
+          "min_power_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Power W"
+          },
+          "min_speed_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Speed Ms"
+          },
+          "min_temperature_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Temperature C"
+          },
+          "moving_time_s": {
+            "default": 0.0,
+            "title": "Moving Time S",
+            "type": "number"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "normalized_power_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalized Power W"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NoteOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "num_laps": {
+            "title": "Num Laps",
+            "type": "integer"
+          },
+          "paused_time_s": {
+            "default": 0.0,
+            "title": "Paused Time S",
+            "type": "number"
+          },
+          "power_available": {
+            "default": false,
+            "title": "Power Available",
+            "type": "boolean"
+          },
+          "route_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Route Id"
+          },
+          "route_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Route Name"
+          },
+          "sport": {
+            "title": "Sport",
+            "type": "string"
+          },
+          "start_time_utc": {
+            "format": "date-time",
+            "title": "Start Time Utc",
+            "type": "string"
+          },
+          "stream_channels": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Stream Channels",
+            "type": "array"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "tss": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tss"
+          },
+          "weekday": {
+            "title": "Weekday",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "start_time_utc",
+          "local_date",
+          "local_start_time",
+          "weekday",
+          "sport",
+          "bike_id",
+          "bike_name",
+          "route_id",
+          "route_name",
+          "num_laps",
+          "tags",
+          "excluded",
+          "note",
+          "evaluations",
+          "stream_channels",
+          "laps"
+        ],
+        "title": "ActivityOut",
+        "type": "object"
+      },
+      "ActivityRow": {
+        "additionalProperties": false,
+        "properties": {
+          "avg_cadence_rpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Cadence Rpm"
+          },
+          "avg_hr_bpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Hr Bpm"
+          },
+          "avg_power_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Power W"
+          },
+          "bike_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bike Id"
+          },
+          "bike_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bike Name"
+          },
+          "decoupling_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decoupling Pct"
+          },
+          "distance_m": {
+            "title": "Distance M",
+            "type": "number"
+          },
+          "elevation_gain_m": {
+            "title": "Elevation Gain M",
+            "type": "number"
+          },
+          "evaluations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Evaluations",
+            "type": "array"
+          },
+          "excluded": {
+            "title": "Excluded",
+            "type": "boolean"
+          },
+          "ftp_at_time_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ftp At Time W"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "intensity_factor": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intensity Factor"
+          },
+          "load_source": {
+            "title": "Load Source",
+            "type": "string"
+          },
+          "local_date": {
+            "format": "date",
+            "title": "Local Date",
+            "type": "string"
+          },
+          "local_start_time": {
+            "title": "Local Start Time",
+            "type": "string"
+          },
+          "moving_time_s": {
+            "title": "Moving Time S",
+            "type": "number"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "normalized_power_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalized Power W"
+          },
+          "note_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note Summary"
+          },
+          "num_laps": {
+            "title": "Num Laps",
+            "type": "integer"
+          },
+          "route_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Route Id"
+          },
+          "route_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Route Name"
+          },
+          "start_time_utc": {
+            "format": "date-time",
+            "title": "Start Time Utc",
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "tss": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tss"
+          },
+          "weekday": {
+            "title": "Weekday",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "start_time_utc",
+          "local_date",
+          "local_start_time",
+          "weekday",
+          "bike_id",
+          "bike_name",
+          "route_id",
+          "route_name",
+          "distance_m",
+          "moving_time_s",
+          "elevation_gain_m",
+          "avg_power_w",
+          "normalized_power_w",
+          "avg_hr_bpm",
+          "avg_cadence_rpm",
+          "intensity_factor",
+          "tss",
+          "load_source",
+          "ftp_at_time_w",
+          "decoupling_pct",
+          "num_laps",
+          "evaluations",
+          "tags",
+          "excluded",
+          "note_summary"
+        ],
+        "title": "ActivityRow",
+        "type": "object"
+      },
+      "AthleteOut": {
+        "additionalProperties": false,
+        "properties": {
+          "baseline_valid_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Valid From"
+          },
+          "baseline_w_per_bpm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline W Per Bpm"
+          },
+          "bikes": {
+            "items": {
+              "$ref": "#/components/schemas/BikeOut"
+            },
+            "title": "Bikes",
+            "type": "array"
+          },
+          "ftp_valid_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ftp Valid From"
+          },
+          "ftp_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ftp W"
+          },
+          "hr_zones": {
+            "items": {
+              "$ref": "#/components/schemas/HrZoneOut"
+            },
+            "title": "Hr Zones",
+            "type": "array"
+          },
+          "lthr_bpm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lthr Bpm"
+          },
+          "lthr_valid_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lthr Valid From"
+          },
+          "power_zones": {
+            "items": {
+              "$ref": "#/components/schemas/PowerZoneOut"
+            },
+            "title": "Power Zones",
+            "type": "array"
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/TagOut"
+            },
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ftp_w",
+          "ftp_valid_from",
+          "lthr_bpm",
+          "lthr_valid_from",
+          "baseline_w_per_bpm",
+          "baseline_valid_from",
+          "power_zones",
+          "hr_zones",
+          "bikes",
+          "tags"
+        ],
+        "title": "AthleteOut",
+        "type": "object"
+      },
+      "BikeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "odo_m": {
+            "title": "Odo M",
+            "type": "number"
+          },
+          "sensors": {
+            "items": {
+              "$ref": "#/components/schemas/SensorOut"
+            },
+            "title": "Sensors",
+            "type": "array"
+          },
+          "weight_kg": {
+            "title": "Weight Kg",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "weight_kg",
+          "odo_m",
+          "sensors"
+        ],
+        "title": "BikeOut",
+        "type": "object"
+      },
+      "CurveWindowOut": {
+        "additionalProperties": false,
+        "properties": {
+          "best_power_1200s_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 1200S W"
+          },
+          "best_power_15s_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 15S W"
+          },
+          "best_power_300s_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 300S W"
+          },
+          "best_power_30s_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 30S W"
+          },
+          "best_power_3600s_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 3600S W"
+          },
+          "best_power_5s_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 5S W"
+          },
+          "best_power_600s_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 600S W"
+          },
+          "best_power_60s_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 60S W"
+          },
+          "end_local_date": {
+            "format": "date",
+            "title": "End Local Date",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "ride_count": {
+            "title": "Ride Count",
+            "type": "integer"
+          },
+          "start_local_date": {
+            "format": "date",
+            "title": "Start Local Date",
+            "type": "string"
+          },
+          "window_days": {
+            "title": "Window Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "window_days",
+          "label",
+          "start_local_date",
+          "end_local_date",
+          "ride_count",
+          "best_power_5s_w",
+          "best_power_15s_w",
+          "best_power_30s_w",
+          "best_power_60s_w",
+          "best_power_300s_w",
+          "best_power_600s_w",
+          "best_power_1200s_w",
+          "best_power_3600s_w"
+        ],
+        "title": "CurveWindowOut",
+        "type": "object"
+      },
+      "EvaluationOut": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "local_date": {
+            "format": "date",
+            "title": "Local Date",
+            "type": "string"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "ride_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ride Id"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "valid_from_utc": {
+            "format": "date-time",
+            "title": "Valid From Utc",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "value",
+          "unit",
+          "valid_from_utc",
+          "local_date",
+          "ride_id",
+          "method",
+          "source"
+        ],
+        "title": "EvaluationOut",
+        "type": "object"
+      },
+      "FitnessOut": {
+        "additionalProperties": false,
+        "properties": {
+          "evaluations": {
+            "items": {
+              "$ref": "#/components/schemas/EvaluationOut"
+            },
+            "title": "Evaluations",
+            "type": "array"
+          },
+          "power_curves": {
+            "items": {
+              "$ref": "#/components/schemas/CurveWindowOut"
+            },
+            "title": "Power Curves",
+            "type": "array"
+          }
+        },
+        "required": [
+          "evaluations",
+          "power_curves"
+        ],
+        "title": "FitnessOut",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HrZoneOut": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "high_bpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High Bpm"
+          },
+          "low_bpm": {
+            "title": "Low Bpm",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "low_bpm",
+          "high_bpm"
+        ],
+        "title": "HrZoneOut",
+        "type": "object"
+      },
+      "LapOut": {
+        "properties": {
+          "avg_altitude_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Altitude M"
+          },
+          "avg_cadence_rpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Cadence Rpm"
+          },
+          "avg_grade_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Grade Pct"
+          },
+          "avg_hr_bpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Hr Bpm"
+          },
+          "avg_power_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Power W"
+          },
+          "avg_speed_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Speed Ms"
+          },
+          "avg_temperature_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Temperature C"
+          },
+          "avg_vam_mph": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Vam Mph"
+          },
+          "best_power_1200s_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 1200S W"
+          },
+          "best_power_15s_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 15S W"
+          },
+          "best_power_300s_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 300S W"
+          },
+          "best_power_30s_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 30S W"
+          },
+          "best_power_3600s_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 3600S W"
+          },
+          "best_power_5s_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 5S W"
+          },
+          "best_power_600s_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 600S W"
+          },
+          "best_power_60s_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 60S W"
+          },
+          "calories_kcal": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calories Kcal"
+          },
+          "decoupling_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decoupling Pct"
+          },
+          "distance_m": {
+            "default": 0.0,
+            "title": "Distance M",
+            "type": "number"
+          },
+          "elapsed_time_s": {
+            "default": 0.0,
+            "title": "Elapsed Time S",
+            "type": "number"
+          },
+          "elevation_gain_m": {
+            "default": 0.0,
+            "title": "Elevation Gain M",
+            "type": "number"
+          },
+          "elevation_loss_m": {
+            "default": 0.0,
+            "title": "Elevation Loss M",
+            "type": "number"
+          },
+          "energy_kj": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Energy Kj"
+          },
+          "ftp_at_time_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ftp At Time W"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "intensity_factor": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intensity Factor"
+          },
+          "left_balance_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Left Balance Pct"
+          },
+          "load_source": {
+            "default": "hr",
+            "title": "Load Source",
+            "type": "string"
+          },
+          "local_start_time": {
+            "title": "Local Start Time",
+            "type": "string"
+          },
+          "lthr_at_time_bpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lthr At Time Bpm"
+          },
+          "max_altitude_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Altitude M"
+          },
+          "max_cadence_rpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Cadence Rpm"
+          },
+          "max_grade_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Grade Pct"
+          },
+          "max_hr_bpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Hr Bpm"
+          },
+          "max_power_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Power W"
+          },
+          "max_speed_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Speed Ms"
+          },
+          "max_temperature_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Temperature C"
+          },
+          "min_altitude_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Altitude M"
+          },
+          "min_cadence_rpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Cadence Rpm"
+          },
+          "min_grade_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Grade Pct"
+          },
+          "min_hr_bpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Hr Bpm"
+          },
+          "min_power_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Power W"
+          },
+          "min_speed_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Speed Ms"
+          },
+          "min_temperature_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Temperature C"
+          },
+          "moving_time_s": {
+            "default": 0.0,
+            "title": "Moving Time S",
+            "type": "number"
+          },
+          "normalized_power_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalized Power W"
+          },
+          "paused_time_s": {
+            "default": 0.0,
+            "title": "Paused Time S",
+            "type": "number"
+          },
+          "power_available": {
+            "default": false,
+            "title": "Power Available",
+            "type": "boolean"
+          },
+          "start_time_utc": {
+            "format": "date-time",
+            "title": "Start Time Utc",
+            "type": "string"
+          },
+          "tss": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tss"
+          },
+          "window_end_s": {
+            "title": "Window End S",
+            "type": "number"
+          },
+          "window_start_s": {
+            "title": "Window Start S",
+            "type": "number"
+          }
+        },
+        "required": [
+          "index",
+          "start_time_utc",
+          "local_start_time",
+          "window_start_s",
+          "window_end_s"
+        ],
+        "title": "LapOut",
+        "type": "object"
+      },
+      "NoteOut": {
+        "additionalProperties": false,
+        "properties": {
+          "perceived_breathing_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Perceived Breathing Limit"
+          },
+          "rpe": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rpe"
+          },
+          "sleep_quality": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sleep Quality"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          }
+        },
+        "required": [
+          "text",
+          "sleep_quality",
+          "rpe",
+          "perceived_breathing_limit"
+        ],
+        "title": "NoteOut",
+        "type": "object"
+      },
+      "PowerZoneOut": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "high_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High W"
+          },
+          "low_w": {
+            "title": "Low W",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "low_w",
+          "high_w"
+        ],
+        "title": "PowerZoneOut",
+        "type": "object"
+      },
+      "RouteHistoryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "avg_tss": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Tss"
+          },
+          "best_tss": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Tss"
+          },
+          "fastest_moving_time_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fastest Moving Time S"
+          },
+          "fastest_on_local_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fastest On Local Date"
+          },
+          "include_excluded": {
+            "title": "Include Excluded",
+            "type": "boolean"
+          },
+          "passes": {
+            "items": {
+              "$ref": "#/components/schemas/RoutePassOut"
+            },
+            "title": "Passes",
+            "type": "array"
+          },
+          "rides_excluded": {
+            "title": "Rides Excluded",
+            "type": "integer"
+          },
+          "rides_in_analysis": {
+            "title": "Rides In Analysis",
+            "type": "integer"
+          },
+          "route": {
+            "$ref": "#/components/schemas/RouteOut"
+          }
+        },
+        "required": [
+          "route",
+          "include_excluded",
+          "rides_in_analysis",
+          "rides_excluded",
+          "fastest_moving_time_s",
+          "fastest_on_local_date",
+          "avg_tss",
+          "best_tss",
+          "passes"
+        ],
+        "title": "RouteHistoryOut",
+        "type": "object"
+      },
+      "RouteOut": {
+        "additionalProperties": false,
+        "properties": {
+          "avg_distance_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Distance M"
+          },
+          "avg_elevation_gain_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Elevation Gain M"
+          },
+          "avg_moving_time_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Moving Time S"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "last_ridden_local_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Ridden Local Date"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "ride_count": {
+            "title": "Ride Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "ride_count",
+          "avg_distance_m",
+          "avg_elevation_gain_m",
+          "avg_moving_time_s",
+          "last_ridden_local_date"
+        ],
+        "title": "RouteOut",
+        "type": "object"
+      },
+      "RoutePassOut": {
+        "additionalProperties": false,
+        "properties": {
+          "activity_id": {
+            "title": "Activity Id",
+            "type": "integer"
+          },
+          "avg_hr_bpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Hr Bpm"
+          },
+          "avg_power_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Power W"
+          },
+          "avg_speed_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Speed Ms"
+          },
+          "best_power_1200s_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 1200S W"
+          },
+          "bike_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bike Id"
+          },
+          "bike_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bike Name"
+          },
+          "excluded": {
+            "title": "Excluded",
+            "type": "boolean"
+          },
+          "intensity_factor": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intensity Factor"
+          },
+          "local_date": {
+            "format": "date",
+            "title": "Local Date",
+            "type": "string"
+          },
+          "local_start_time": {
+            "title": "Local Start Time",
+            "type": "string"
+          },
+          "moving_time_s": {
+            "title": "Moving Time S",
+            "type": "number"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "normalized_power_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalized Power W"
+          },
+          "note_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note Summary"
+          },
+          "start_time_utc": {
+            "format": "date-time",
+            "title": "Start Time Utc",
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "tss": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tss"
+          },
+          "weekday": {
+            "title": "Weekday",
+            "type": "string"
+          }
+        },
+        "required": [
+          "activity_id",
+          "name",
+          "start_time_utc",
+          "local_date",
+          "local_start_time",
+          "weekday",
+          "bike_id",
+          "bike_name",
+          "moving_time_s",
+          "avg_speed_ms",
+          "avg_power_w",
+          "normalized_power_w",
+          "best_power_1200s_w",
+          "intensity_factor",
+          "tss",
+          "avg_hr_bpm",
+          "tags",
+          "excluded",
+          "note_summary"
+        ],
+        "title": "RoutePassOut",
+        "type": "object"
+      },
+      "RoutesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "routes": {
+            "items": {
+              "$ref": "#/components/schemas/RouteOut"
+            },
+            "title": "Routes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "count",
+          "routes"
+        ],
+        "title": "RoutesOut",
+        "type": "object"
+      },
+      "SensorOut": {
+        "additionalProperties": false,
+        "properties": {
+          "ant_id": {
+            "title": "Ant Id",
+            "type": "integer"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "sensor_type": {
+            "title": "Sensor Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sensor_type",
+          "ant_id",
+          "label"
+        ],
+        "title": "SensorOut",
+        "type": "object"
+      },
+      "StreamsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "activity_id": {
+            "title": "Activity Id",
+            "type": "integer"
+          },
+          "channels": {
+            "additionalProperties": {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            "title": "Channels",
+            "type": "object"
+          },
+          "end_s": {
+            "title": "End S",
+            "type": "number"
+          },
+          "sample_count": {
+            "title": "Sample Count",
+            "type": "integer"
+          },
+          "start_s": {
+            "title": "Start S",
+            "type": "number"
+          },
+          "step_s": {
+            "title": "Step S",
+            "type": "integer"
+          },
+          "time_s": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Time S",
+            "type": "array"
+          }
+        },
+        "required": [
+          "activity_id",
+          "start_s",
+          "end_s",
+          "step_s",
+          "sample_count",
+          "time_s",
+          "channels"
+        ],
+        "title": "StreamsOut",
+        "type": "object"
+      },
+      "TagOut": {
+        "additionalProperties": false,
+        "properties": {
+          "color": {
+            "title": "Color",
+            "type": "string"
+          },
+          "effect": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effect"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "color",
+          "effect"
+        ],
+        "title": "TagOut",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "VersionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "title": "Api Version",
+            "type": "string"
+          },
+          "app_version": {
+            "title": "App Version",
+            "type": "string"
+          },
+          "schema_revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schema Revision"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "app_version",
+          "api_version",
+          "schema_revision",
+          "timezone"
+        ],
+        "title": "VersionOut",
+        "type": "object"
+      },
+      "WindowOut": {
+        "properties": {
+          "activity_id": {
+            "title": "Activity Id",
+            "type": "integer"
+          },
+          "avg_altitude_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Altitude M"
+          },
+          "avg_cadence_rpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Cadence Rpm"
+          },
+          "avg_grade_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Grade Pct"
+          },
+          "avg_hr_bpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Hr Bpm"
+          },
+          "avg_power_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Power W"
+          },
+          "avg_speed_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Speed Ms"
+          },
+          "avg_temperature_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Temperature C"
+          },
+          "avg_vam_mph": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Vam Mph"
+          },
+          "baseline_w_per_bpm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline W Per Bpm"
+          },
+          "best_power_1200s_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 1200S W"
+          },
+          "best_power_15s_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 15S W"
+          },
+          "best_power_300s_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 300S W"
+          },
+          "best_power_30s_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 30S W"
+          },
+          "best_power_3600s_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 3600S W"
+          },
+          "best_power_5s_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 5S W"
+          },
+          "best_power_600s_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 600S W"
+          },
+          "best_power_60s_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Power 60S W"
+          },
+          "calories_kcal": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calories Kcal"
+          },
+          "decoupling_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decoupling Pct"
+          },
+          "distance_m": {
+            "default": 0.0,
+            "title": "Distance M",
+            "type": "number"
+          },
+          "elapsed_time_s": {
+            "default": 0.0,
+            "title": "Elapsed Time S",
+            "type": "number"
+          },
+          "elevation_gain_m": {
+            "default": 0.0,
+            "title": "Elevation Gain M",
+            "type": "number"
+          },
+          "elevation_loss_m": {
+            "default": 0.0,
+            "title": "Elevation Loss M",
+            "type": "number"
+          },
+          "end_s": {
+            "title": "End S",
+            "type": "number"
+          },
+          "energy_kj": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Energy Kj"
+          },
+          "ftp_at_time_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ftp At Time W"
+          },
+          "ftp_estimate_w": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ftp Estimate W"
+          },
+          "intensity_factor": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Intensity Factor"
+          },
+          "lap_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lap Index"
+          },
+          "left_balance_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Left Balance Pct"
+          },
+          "load_source": {
+            "default": "hr",
+            "title": "Load Source",
+            "type": "string"
+          },
+          "lthr_at_time_bpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lthr At Time Bpm"
+          },
+          "max_altitude_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Altitude M"
+          },
+          "max_cadence_rpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Cadence Rpm"
+          },
+          "max_grade_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Grade Pct"
+          },
+          "max_hr_bpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Hr Bpm"
+          },
+          "max_power_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Power W"
+          },
+          "max_speed_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Speed Ms"
+          },
+          "max_temperature_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Temperature C"
+          },
+          "min_altitude_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Altitude M"
+          },
+          "min_cadence_rpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Cadence Rpm"
+          },
+          "min_grade_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Grade Pct"
+          },
+          "min_hr_bpm": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Hr Bpm"
+          },
+          "min_power_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Power W"
+          },
+          "min_speed_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Speed Ms"
+          },
+          "min_temperature_c": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Temperature C"
+          },
+          "moving_time_s": {
+            "default": 0.0,
+            "title": "Moving Time S",
+            "type": "number"
+          },
+          "normalized_power_w": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Normalized Power W"
+          },
+          "paused_time_s": {
+            "default": 0.0,
+            "title": "Paused Time S",
+            "type": "number"
+          },
+          "power_available": {
+            "default": false,
+            "title": "Power Available",
+            "type": "boolean"
+          },
+          "sample_count": {
+            "title": "Sample Count",
+            "type": "integer"
+          },
+          "start_s": {
+            "title": "Start S",
+            "type": "number"
+          },
+          "tss": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tss"
+          }
+        },
+        "required": [
+          "activity_id",
+          "lap_index",
+          "start_s",
+          "end_s",
+          "sample_count",
+          "ftp_estimate_w",
+          "baseline_w_per_bpm"
+        ],
+        "title": "WindowOut",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "bike-tracker",
+    "version": "v1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/activities": {
+      "get": {
+        "operationId": "list_activities_api_v1_activities_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from_date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From Date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to_date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To Date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "bike_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Bike Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "route_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Route Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tag",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tag"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_excluded",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Excluded",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivitiesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Activities"
+      }
+    },
+    "/api/v1/activities/{activity_id}": {
+      "get": {
+        "operationId": "get_activity_api_v1_activities__activity_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "activity_id",
+            "required": true,
+            "schema": {
+              "title": "Activity Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Activity"
+      }
+    },
+    "/api/v1/activities/{activity_id}/streams": {
+      "get": {
+        "operationId": "get_streams_api_v1_activities__activity_id__streams_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "activity_id",
+            "required": true,
+            "schema": {
+              "title": "Activity Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start_s",
+            "required": true,
+            "schema": {
+              "minimum": 0,
+              "title": "Start S",
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_s",
+            "required": true,
+            "schema": {
+              "exclusiveMinimum": 0,
+              "title": "End S",
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "step_s",
+            "required": false,
+            "schema": {
+              "default": 5,
+              "maximum": 300,
+              "minimum": 1,
+              "title": "Step S",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "channels",
+            "required": false,
+            "schema": {
+              "default": "power_w,hr_bpm,cadence_rpm",
+              "title": "Channels",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StreamsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Streams"
+      }
+    },
+    "/api/v1/activities/{activity_id}/window": {
+      "get": {
+        "operationId": "get_window_api_v1_activities__activity_id__window_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "activity_id",
+            "required": true,
+            "schema": {
+              "title": "Activity Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "lap_index",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Lap Index"
+            }
+          },
+          {
+            "in": "query",
+            "name": "start_s",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start S"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_s",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End S"
+            }
+          },
+          {
+            "in": "query",
+            "name": "skip_head_s",
+            "required": false,
+            "schema": {
+              "default": 0.0,
+              "minimum": 0,
+              "title": "Skip Head S",
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "skip_tail_s",
+            "required": false,
+            "schema": {
+              "default": 0.0,
+              "minimum": 0,
+              "title": "Skip Tail S",
+              "type": "number"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WindowOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Window"
+      }
+    },
+    "/api/v1/athlete": {
+      "get": {
+        "operationId": "get_athlete_api_v1_athlete_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AthleteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Athlete"
+      }
+    },
+    "/api/v1/fitness": {
+      "get": {
+        "operationId": "get_fitness_api_v1_fitness_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FitnessOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Fitness"
+      }
+    },
+    "/api/v1/routes": {
+      "get": {
+        "operationId": "list_routes_api_v1_routes_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoutesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Routes"
+      }
+    },
+    "/api/v1/routes/{route_id}/history": {
+      "get": {
+        "operationId": "get_route_history_api_v1_routes__route_id__history_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "route_id",
+            "required": true,
+            "schema": {
+              "title": "Route Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_excluded",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Include Excluded",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouteHistoryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Route History"
+      }
+    },
+    "/api/v1/version": {
+      "get": {
+        "operationId": "get_version_api_v1_version_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Version"
+      }
+    }
+  }
+}

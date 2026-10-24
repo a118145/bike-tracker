@@ -12,15 +12,23 @@
 #   DOCKERHUB_REPO      <user>/<repo>, lowercase
 # Because the repo name is a secret, it shows as *** in these logs.
 #
-# Nothing in this workflow writes an env file or passes a build arg: the image
-# is built without any secret, and docker/check-image.sh enforces that before
-# anything is pushed.
+# Nothing in this workflow writes an env file or passes a secret: the one build
+# arg is APP_VERSION, the release number. docker/check-image.sh enforces that
+# before anything is pushed.
+#
+# The MCP server has its own image and workflow (mcp.yaml, tags mcp-v*). A push
+# that only touches mcp_server/ does not rebuild this image. Tag pushes ignore
+# path filters on GitHub, so the two are kept apart by tag prefix instead: `v*`
+# does not match `mcp-v*`.
 name: Build and push image
 
 on:
   push:
     branches: [main]
     tags: ["v*"]
+    paths-ignore:
+      - "mcp_server/**"
+      - ".github/workflows/mcp.yaml"
   workflow_dispatch:
 
 permissions:
@@ -35,7 +43,26 @@ env:
   CI_IMAGE: ci-image:test
 
 jobs:
+  # Lint and types over everything, plus the tests that need no ride data.
+  # The full suite reads the reference FIT files in docs/, which stay out of
+  # the repository (personal GPS tracks) — run it locally before tagging.
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check bike_tracker tests
+      - run: uv run mypy .
+      # The API contract the MCP server documents must match the app (rule 46).
+      - run: >-
+          uv run pytest -q tests/test_local_time.py tests/test_api.py
+          -k "local_time or snapshot or names_its_unit or curve_window_fields or metric_contract"
+
   build:
+    needs: check
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -64,6 +91,10 @@ jobs:
           platforms: linux/amd64
           load: true
           push: false
+          # The release number GET /api/v1/version reports: "0.2.0" for a tag,
+          # the branch name for a main build. Not a secret.
+          build-args: |
+            APP_VERSION=${{ steps.meta.outputs.version }}
           tags: |
             ${{ steps.meta.outputs.tags }}
             ${{ env.CI_IMAGE }}

@@ -24,7 +24,8 @@ found=$(docker run --rm --network none --entrypoint sh "$image" -c '
     \( -name ".env" -o -name ".env.*" -o -name "*.db" -o -name "*.sqlite" -o -name "*.sqlite3" \
        -o -name "*.fit" -o -name ".git" -o -name "id_rsa*" -o -name "id_ed25519*" -o -name "*.key" \) \
     ! -name ".env.example" -print 2>/dev/null
-  find /app/data -mindepth 1 -print 2>/dev/null
+  # The MCP image has no data directory at all; its absence is a pass.
+  find /app/data -mindepth 1 -print 2>/dev/null || true
 ')
 if [ -n "$found" ]; then
   echo "check-image: FAIL — files that must not be in the image:"

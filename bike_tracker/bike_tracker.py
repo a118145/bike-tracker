@@ -1,8 +1,8 @@
 """App entry point.
 
-Four jobs only: configure logging, import the models so the schema is
+Five jobs only: configure logging, import the models so the schema is
 complete, import the page modules so their ``@rx.page`` decorators register,
-and hang the Hammerhead poller off the backend lifecycle. Routes themselves
+mount the REST API, and hang the Hammerhead poller off the backend lifecycle. Routes themselves
 are declared next to the pages, and their paths come from
 ``navigation/routes.py``.
 """
@@ -13,13 +13,16 @@ import reflex as rx
 # the importer and never rendered by a page would otherwise be missed by
 # `reflex db makemigrations` and only surface as schema drift (brief §3.1).
 from . import models, pages
+from .api.v1 import create_api
 from .ingest.scheduler import poller_lifespan
 from .utils.logging import configure_logging, get_logger
 
 configure_logging()
 log = get_logger(__name__)
 
-app = rx.App()
+# `/api/v1` for the MCP server (AGENTS.md rules 45-47). FastAPI sits in front of
+# Reflex's own backend, so its routes win and everything else falls through.
+app = rx.App(api_transformer=create_api())
 
 # The poll timer, tied to the process rather than to a browser session. An
 # `@rx.event(background=True)` would stop when the last tab closes and run

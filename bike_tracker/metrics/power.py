@@ -65,6 +65,20 @@ def ftp_from_20min(avg_power_w: float) -> float:
     return max(0.0, avg_power_w) * FTP_FROM_20MIN_FACTOR
 
 
+def ftp_from_window(power: FloatArray) -> float | None:
+    """FTP implied by a window's average power — the evaluation dialog's rule.
+
+    A missing sample counts as zero watts, as a dropout or coast does on the
+    head unit, so a gappy window cannot inflate the estimate. ``None`` when
+    there are fewer than two samples. The ride page's FTP dialog and the REST
+    API's window cutter both call this, so they quote the same estimate.
+    """
+    samples = as_float_array(power)
+    if samples.size < 2:
+        return None
+    return ftp_from_20min(float(np.mean(np.nan_to_num(samples, nan=0.0))))
+
+
 def intensity_factor(np_w: float, ftp_w: float) -> float:
     """Normalized power as a fraction of FTP."""
     if ftp_w <= 0:

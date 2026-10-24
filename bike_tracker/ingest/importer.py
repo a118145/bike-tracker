@@ -661,10 +661,12 @@ def refresh_ftp_dependent(session: Session, since: datetime) -> int:
     retroactive drift ``ftp_at_time_w`` exists to prevent.
 
     Only the three FTP-dependent fields are rewritten, from the stored
-    normalized power and moving time. A full ``summarize`` would need the
-    streams as a ``ChannelWindow``, which can only be built from a parsed FIT
-    file — and the file is not kept (§1.3). Nothing else in the metric set
-    depends on FTP, so there is nothing else to redo.
+    normalized power and moving time. A full ``summarize`` over the stored
+    streams (``ChannelWindow.from_stream``) would recompute everything the
+    device wrote into the FIT session — distance, ascent, timer time — without
+    that message, because the file is not kept (§1.3), and so drift from the
+    import-time values. Nothing else in the metric set depends on FTP, so
+    there is nothing else to redo.
 
     Returns:
         How many rides were updated.

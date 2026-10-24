@@ -11,12 +11,15 @@ card must be re-openable for editing (masterplan §3.4, general note). Without
 them the dialog cannot restore the sliders the user set.
 """
 
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 
 from reflex.model import ModelRegistry
 from sqlmodel import Field, SQLModel
 
+from ..metrics import POWER_CURVE_WINDOWS_S, EffortWindow, best_effort_windows
 from ..metrics.power import FTP_FROM_20MIN_FACTOR as _FTP_FROM_20MIN_FACTOR
+from .ride import Ride
 
 EVAL_FTP = "ftp"
 EVAL_BASELINE = "baseline"
@@ -67,3 +70,49 @@ class FitnessEval(SQLModel, table=True):
 
     note: str | None = Field(default=None)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+# Window lengths of the Fitness page's power-curve toggle (masterplan §2.5),
+# in days, and how many consecutive windows it draws.
+CURVE_WINDOW_DAYS: tuple[int, ...] = (30, 90)
+MAX_CURVE_WINDOWS = 4
+
+
+def latest_evaluations(evaluations: Iterable[FitnessEval]) -> dict[str, FitnessEval]:
+    """The current value of each evaluation type: the newest by ``valid_from``.
+
+    The one definition of "current FTP / LTHR / baseline". The Fitness page,
+    the Dashboard and the REST API all read it, so they cannot show three
+    different FTPs. There is deliberately no fallback to the head unit's
+    figure: the pages show "—" until an evaluation exists, and so does the
+    API (AGENTS.md rule 45).
+    """
+    latest: dict[str, FitnessEval] = {}
+    for record in sorted(evaluations, key=lambda e: e.valid_from):
+        latest[record.type] = record
+    return latest
+
+
+def ride_efforts(ride: Ride) -> dict[int, float | None]:
+    """The ride's stored mean-maximal curve, keyed by window length in seconds."""
+    return {
+        duration: getattr(ride, f"best_power_{duration}s_w", None)
+        for duration in POWER_CURVE_WINDOWS_S
+    }
+
+
+def power_curve_windows(
+    rides: Sequence[Ride], *, window_days: int, now: datetime
+) -> list[EffortWindow]:
+    """The Fitness page's best-effort windows, newest first.
+
+    ``rides`` should come from ``analysis_rides()``; the curve describes
+    training.
+    """
+    return best_effort_windows(
+        [(ride.start_time, ride_efforts(ride)) for ride in rides],
+        window_days=window_days,
+        now=now,
+        max_windows=MAX_CURVE_WINDOWS,
+        durations_s=POWER_CURVE_WINDOWS_S,
+    )
