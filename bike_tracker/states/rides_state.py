@@ -18,7 +18,7 @@ from sqlmodel import col, select
 
 from ..components.toast import notify_error, notify_info, notify_success, notify_warning
 from ..ingest.sources.file import import_bytes, scan_folder
-from ..models import EVAL_FTP, Bike, FitnessEval, Ride
+from ..models import EVAL_FTP, Bike, FitnessEval, Ride, excluded_ride_ids
 from ..navigation import routes
 from ..utils.formatting import (
     format_distance_km,
@@ -26,6 +26,7 @@ from ..utils.formatting import (
     format_number,
 )
 from ..utils.logging import get_logger
+from .tags_state import TagPill, all_tags, load_ride_tags, to_pill
 
 log = get_logger(__name__).bind(state="RidesState")
 
@@ -66,14 +67,21 @@ class RideCard:
     evaluations: list[RideEvalBadge] = field(default_factory=list)
     preview_points: str = ""
     detail_href: str = ""
-    # Excluded from analysis (AGENTS.md rule 42): still listed, but marked.
+    # Excluded from analysis (AGENTS.md rule 42): still listed, but dimmed.
     excluded: bool = False
+    tags: list[TagPill] = field(default_factory=list)
+    tag_ids: list[int] = field(default_factory=list)
 
 
 class RidesState(rx.State):
     rides: list[RideCard] = []
     loading: bool = False
     uploading: bool = False
+
+    # Tag filter: every defined tag as a toggle chip, and the selected ids.
+    # Kept across navigation like the dashboard's bike filter.
+    filter_tags: list[TagPill] = []
+    selected_tags: list[int] = []
 
     @rx.var
     def has_rides(self) -> bool:
@@ -82,6 +90,32 @@ class RidesState(rx.State):
     @rx.var
     def ride_count(self) -> int:
         return len(self.rides)
+
+    @rx.var
+    def visible_rides(self) -> list[RideCard]:
+        return filter_by_tags(self.rides, self.selected_tags)
+
+    @rx.var
+    def filtering(self) -> bool:
+        return len(self.selected_tags) > 0
+
+    @rx.var
+    def count_text(self) -> str:
+        if not self.selected_tags:
+            return f"{len(self.rides)} ride(s) recorded."
+        shown = len(filter_by_tags(self.rides, self.selected_tags))
+        return f"{shown} of {len(self.rides)} ride(s) shown."
+
+    @rx.event
+    def toggle_tag(self, tag_id: int):
+        if tag_id in self.selected_tags:
+            self.selected_tags = [t for t in self.selected_tags if t != tag_id]
+        else:
+            self.selected_tags = [*self.selected_tags, tag_id]
+
+    @rx.event
+    def clear_tag_filter(self):
+        self.selected_tags = []
 
     @rx.event
     def load(self):
@@ -101,9 +135,17 @@ class RidesState(rx.State):
             evaluations = session.exec(
                 select(FitnessEval).order_by(col(FitnessEval.created_at))
             ).all()
+            tags = load_ride_tags(session)
+            excluded = excluded_ride_ids(session, (r.id for r in rides if r.id is not None))
+            self.filter_tags = [to_pill(tag) for tag in all_tags(session)]
+
+        # A tag deleted in Settings must not linger as an invisible filter
+        # that hides every ride.
+        known = {pill.id for pill in self.filter_tags}
+        self.selected_tags = [t for t in self.selected_tags if t in known]
 
         by_ride = group_evaluations(evaluations)
-        self.rides = [_to_card(ride, bike_names, by_ride) for ride in rides]
+        self.rides = [_to_card(ride, bike_names, by_ride, tags, excluded) for ride in rides]
         log.info("rides.load", count=len(self.rides))
 
     @rx.event
@@ -196,6 +238,14 @@ def group_evaluations(records: Sequence[FitnessEval]) -> dict[int, list[RideEval
     return grouped
 
 
+def filter_by_tags(cards: Sequence[RideCard], selected: Sequence[int]) -> list[RideCard]:
+    """The cards carrying **any** of the selected tags; all of them if none is."""
+    if not selected:
+        return list(cards)
+    wanted = set(selected)
+    return [card for card in cards if wanted.intersection(card.tag_ids)]
+
+
 def _to_badge(record: FitnessEval) -> RideEvalBadge:
     """Same label and colour rule as ``ride_detail_state._load_badges``."""
     if record.type == EVAL_FTP:
@@ -207,7 +257,10 @@ def _to_card(
     ride: Ride,
     bike_names: dict[int | None, str],
     evaluations: dict[int, list[RideEvalBadge]],
+    tags: dict[int, list[TagPill]] | None = None,
+    excluded: set[int] | None = None,
 ) -> RideCard:
+    pills = (tags or {}).get(ride.id or 0, [])
     return RideCard(
         id=ride.id or 0,
         name=ride.name,
@@ -223,7 +276,9 @@ def _to_card(
         evaluations=evaluations.get(ride.id or 0, []),
         preview_points=ride.preview_points,
         detail_href=f"{routes.RIDES_ROUTE}/{ride.id}",
-        excluded=ride.excluded,
+        excluded=ride.id in (excluded or set()),
+        tags=pills,
+        tag_ids=[pill.id for pill in pills],
     )
 
 

@@ -11,7 +11,7 @@ that raises ``DynamicRouteArgShadowsStateVarError`` — hence the
 why ``load`` guards the ``int()``.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import reflex as rx
@@ -25,7 +25,7 @@ from ..components.map_view import (
     build_map_figure,
     heat_opacity,
 )
-from ..models import Ride, Route
+from ..models import Ride, Route, excluded_ride_ids
 from ..navigation import routes as route_urls
 from ..utils.formatting import (
     EMPTY,
@@ -36,6 +36,7 @@ from ..utils.formatting import (
 )
 from ..utils.logging import get_logger
 from ..utils.plotly_json import figure_to_dict
+from .tags_state import TagPill, load_ride_tags
 
 log = get_logger(__name__).bind(state="RouteDetailState")
 
@@ -62,6 +63,7 @@ class RideRow:
     # Excluded from analysis: listed, dimmed, and left out of the map and the
     # summary card (AGENTS.md rule 42).
     excluded: bool = False
+    tags: list[TagPill] = field(default_factory=list)
 
 
 class RouteDetailState(rx.State):
@@ -153,13 +155,18 @@ class RouteDetailState(rx.State):
                 ).all()
             )
             name = route.name
+            ride_ids = [ride.id for ride in rides if ride.id is not None]
+            excluded = excluded_ride_ids(session, ride_ids)
+            tags = load_ride_tags(session, ride_ids)
 
         # The table lists every ride; everything that summarises the route
         # describes only the rides in analysis.
-        counted = [ride for ride in rides if not ride.excluded]
+        counted = [ride for ride in rides if ride.id not in excluded]
         self.title = name
         self.subtitle = _ridden(len(counted), len(rides) - len(counted))
-        self.rides = [_to_row(ride) for ride in rides]
+        self.rides = [
+            _to_row(ride, ride.id in excluded, tags.get(ride.id or 0, [])) for ride in rides
+        ]
         self.stats = _route_stats(route, counted)
         self._build_map(route_id, counted)
         # Last, with no `yield` in between, so the flag and the figure land in
@@ -232,7 +239,7 @@ def _ridden(counted: int, excluded: int) -> str:
     return f"{text} · {excluded} excluded" if excluded else text
 
 
-def _to_row(ride: Ride) -> RideRow:
+def _to_row(ride: Ride, excluded: bool = False, tags: list[TagPill] | None = None) -> RideRow:
     return RideRow(
         id=ride.id or 0,
         date=ride.start_time.strftime("%d %b %Y"),
@@ -245,7 +252,8 @@ def _to_row(ride: Ride) -> RideRow:
         tss=format_number(ride.tss),
         avg_hr=format_number(ride.avg_hr_bpm),
         detail_href=f"{route_urls.RIDES_ROUTE}/{ride.id}",
-        excluded=ride.excluded,
+        excluded=excluded,
+        tags=tags or [],
     )
 
 

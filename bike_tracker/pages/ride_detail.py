@@ -2,11 +2,12 @@
 
 Layout order, top to bottom, is the spec:
 
-1. heading, back link, "In analysis" switch, bike dropdown, route dropdown
-2. full-page map
-3. y-t chart — elevation always, extra channels toggled by the stat cards
-4. lap bars, when the ride has more than one lap
-5. grouped stat cards matching ``docs/image.png``
+1. heading, back link, bike dropdown, route dropdown
+2. tags — pills plus an input that suggests the tags defined in Settings
+3. full-page map
+4. y-t chart — elevation always, extra channels toggled by the stat cards
+5. lap bars, when the ride has more than one lap
+6. grouped stat cards matching ``docs/image.png``
 
 The page has no nav entry of its own; ``NavState.active_route`` resolves
 ``/rides/5`` to ``/rides`` and keeps the sidebar highlighting Rides.
@@ -21,6 +22,7 @@ from ..components.map_view import map_slot
 from ..components.ride_chart import chart_skeleton, ride_chart
 from ..components.ride_stats import ride_stat_cards
 from ..components.route_dialog import route_dialog
+from ..components.tags import tag_pill
 from ..navigation import routes
 from ..navigation.nav_config import label_for_route
 from ..states.ride_detail_state import (
@@ -90,25 +92,60 @@ def _selector(
     )
 
 
-def _analysis_switch() -> rx.Component:
-    """Include or exclude the ride from analysis (AGENTS.md rule 42).
+# Ties the input to its suggestion list. Must be unique on the page.
+_TAG_DATALIST_ID = "ride-tag-options"
 
-    Styled like :func:`_selector` so the header row reads as one set of
-    controls. On means the ride counts, which is the normal case.
+
+def _tag_row() -> rx.Component:
+    """The ride's tags, and an input to attach another (AGENTS.md rule 43).
+
+    Suggestions come from a native ``<datalist>``: the browser filters and
+    shows them without a round trip per keystroke, and without a line of
+    custom JS (rule 23). Enter attaches what was typed; only tags defined in
+    Settings are accepted.
+
+    Gated on ``stale`` like the rest of the page: on a client-side navigation
+    the previous ride's pills would flash, and an Enter or an ``x`` would
+    write to the ride being loaded.
     """
     return rx.hstack(
-        rx.icon("chart-line", size=15, color=rx.color("gray", 10)),
-        rx.text("In analysis", size="2", color_scheme="gray"),
-        rx.switch(
-            checked=RideDetailState.in_analysis,
-            on_change=RideDetailState.set_in_analysis,
-            # While stale the switch still shows the previous ride's flag
-            # (RideDetailState.stale), and a click would write its opposite
-            # to the ride being loaded.
-            disabled=RideDetailState.stale,
+        rx.icon("tag", size=15, color=rx.color("gray", 10)),
+        rx.skeleton(
+            rx.hstack(
+                rx.foreach(
+                    RideDetailState.ride_tags,
+                    lambda pill: tag_pill(
+                        pill,
+                        size="2",
+                        on_remove=RideDetailState.remove_tag,
+                        disabled=RideDetailState.stale,
+                    ),
+                ),
+                spacing="2",
+                align="center",
+                wrap="wrap",
+            ),
+            loading=RideDetailState.stale,
         ),
-        align="center",
+        rx.input(
+            placeholder="Add tag…",
+            value=RideDetailState.tag_query,
+            on_change=RideDetailState.set_tag_query,
+            on_key_down=RideDetailState.handle_tag_key,
+            disabled=RideDetailState.stale,
+            size="1",
+            variant="soft",
+            width="10em",
+            custom_attrs={"list": _TAG_DATALIST_ID, "autoComplete": "off"},
+        ),
+        rx.el.datalist(
+            rx.foreach(RideDetailState.tag_suggestions, lambda name: rx.el.option(value=name)),
+            id=_TAG_DATALIST_ID,
+        ),
         spacing="2",
+        align="center",
+        wrap="wrap",
+        width="100%",
     )
 
 
@@ -132,7 +169,6 @@ def _header() -> rx.Component:
         ),
         rx.spacer(),
         rx.hstack(
-            _analysis_switch(),
             _selector(
                 "bike",
                 RideDetailState.bike_options,
@@ -178,6 +214,7 @@ def _chart() -> rx.Component:
 def _found() -> rx.Component:
     return rx.vstack(
         _header(),
+        _tag_row(),
         map_slot(
             RideDetailState.map_figure,
             loading=RideDetailState.stale,

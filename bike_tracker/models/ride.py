@@ -10,14 +10,16 @@ cards a ride does. This module holds only what distinguishes them: a ride's
 identity and relations, a lap's position within its ride.
 """
 
+from collections.abc import Iterable
 from datetime import UTC, datetime
 
 from reflex.model import ModelRegistry
-from sqlalchemy import JSON, Column, ColumnElement
-from sqlmodel import Field, SQLModel, col, select
+from sqlalchemy import JSON, Column, ColumnElement, not_
+from sqlmodel import Field, Session, SQLModel, col, select
 from sqlmodel.sql.expression import SelectOfScalar
 
 from .metric_fields import LOAD_SOURCE_HR, LOAD_SOURCE_POWER, MetricFields
+from .tag import TAG_EFFECT_EXCLUDE, RideTag, Tag
 
 __all__ = [
     "LOAD_SOURCE_HR",
@@ -28,6 +30,7 @@ __all__ = [
     "RideNote",
     "RideStream",
     "analysis_rides",
+    "excluded_ride_ids",
     "in_analysis",
 ]
 
@@ -54,14 +57,6 @@ class Ride(MetricFields, table=True):
     # Croozer trailer, trekking bike only (brief §2). Default is "no trailer";
     # without the flag, trailer rides poison every comparison they appear in.
     has_trailer: bool = Field(default=False)
-
-    # --- curation ------------------------------------------------------------
-    # A ride that really happened but describes no training — a test with
-    # implausible power, say. It stays in the rides list and on the odometer,
-    # and drops out of everything that describes training: fitness, dashboard,
-    # route statistics and the MCP layer. Never filter on it by hand; use
-    # :func:`analysis_rides`, so the app and the LLM cannot disagree.
-    excluded: bool = Field(default=False, index=True)
 
     # --- identity in time --------------------------------------------------
     start_time: datetime = Field(index=True)
@@ -112,8 +107,18 @@ class Ride(MetricFields, table=True):
 
 def in_analysis() -> ColumnElement[bool]:
     """The predicate behind :func:`analysis_rides`, for queries that select
-    columns or aggregates rather than whole rides."""
-    return col(Ride.excluded).is_(False)
+    columns or aggregates rather than whole rides.
+
+    A ride is out of analysis when it carries a tag whose *effect* excludes it
+    — a ride that really happened but describes no training, such as a test
+    with implausible power. The tag's name plays no part (models/tag.py).
+    """
+    excluding = (
+        select(RideTag.ride_id)
+        .join(Tag, col(Tag.id) == col(RideTag.tag_id))
+        .where(Tag.effect == TAG_EFFECT_EXCLUDE)
+    )
+    return col(Ride.id).not_in(excluding)
 
 
 def analysis_rides() -> SelectOfScalar[Ride]:
@@ -126,6 +131,20 @@ def analysis_rides() -> SelectOfScalar[Ride]:
     rule 42. Callers add their own ordering.
     """
     return select(Ride).where(in_analysis())
+
+
+def excluded_ride_ids(session: Session, ride_ids: Iterable[int]) -> set[int]:
+    """Which of ``ride_ids`` are out of analysis, by the same predicate.
+
+    For code that already holds the rides and needs a flag per ride — the
+    route table dims them, route statistics skip them — without asking the
+    tags a second, hand-written way.
+    """
+    ids = list(ride_ids)
+    if not ids:
+        return set()
+    rows = session.exec(select(Ride.id).where(col(Ride.id).in_(ids), not_(in_analysis()))).all()
+    return {row for row in rows if row is not None}
 
 
 @ModelRegistry.register

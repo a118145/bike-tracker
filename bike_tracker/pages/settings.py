@@ -14,20 +14,26 @@ import reflex as rx
 
 from ..components.bikes_section import bikes_section
 from ..components.hammerhead_section import hammerhead_section
+from ..components.tags_section import tags_section
 from ..navigation import routes
 from ..states.bikes_state import BikesState
 from ..states.hammerhead_state import HammerheadState
+from ..states.tags_state import TagsState
 from ..ui.base import base_page
 
 
 @rx.page(
-    route=routes.SETTINGS_ROUTE, title="Settings", on_load=[BikesState.load, HammerheadState.load]
+    route=routes.SETTINGS_ROUTE,
+    title="Settings",
+    on_load=[BikesState.load, TagsState.load, HammerheadState.load],
 )
 def settings() -> rx.Component:
     return base_page(
         rx.vstack(
             rx.heading("Settings", size="7"),
             bikes_section(),
+            rx.divider(),
+            tags_section(),
             rx.divider(),
             hammerhead_section(),
             spacing="5",

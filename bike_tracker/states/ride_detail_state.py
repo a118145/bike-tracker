@@ -46,6 +46,7 @@ from ..ingest.importer import (
     create_manual_route,
     refresh_ftp_dependent,
     refresh_route_stats,
+    refresh_routes_for_rides,
 )
 from ..metrics import Point
 from ..models import (
@@ -54,13 +55,16 @@ from ..models import (
     METHOD_BEST_FIT,
     METHOD_LAP,
     METHOD_WINDOW,
+    TAG_EFFECT_EXCLUDE,
     Bike,
     FitnessEval,
     Lap,
     MetricFields,
     Ride,
     RideStream,
+    RideTag,
     Route,
+    match_tag,
 )
 from ..utils.formatting import (
     EMPTY,
@@ -73,6 +77,7 @@ from ..utils.formatting import (
 from ..utils.logging import get_logger
 from ..utils.plotly_json import figure_to_dict
 from .routes_state import NEW_ROUTE_NAME, RoutesState
+from .tags_state import TagPill, all_tags, find_tag_by_name, load_ride_tags
 
 log = get_logger(__name__).bind(state="RideDetailState")
 
@@ -164,9 +169,12 @@ class RideDetailState(rx.State):
     route_options: list[SelectOption] = []
     bike_value: str = ""
     route_value: str = ""
-    # Mirrors `not Ride.excluded` — the switch reads "In analysis", so the
-    # normal case is on.
-    in_analysis: bool = True
+
+    # --- tags (AGENTS.md rule 43) -------------------------------------------
+    ride_tags: list[TagPill] = []
+    # Every tag defined in Settings; only these can be attached.
+    tag_options: list[str] = []
+    tag_query: str = ""
 
     # --- fitness evaluation (masterplan §2.4.2) ---------------------------
     # Saved evaluations for this ride, shown as badges on the Power card.
@@ -210,6 +218,12 @@ class RideDetailState(rx.State):
         delta lands first flips this.
         """
         return self.loading or self.loaded_id != self.ride_id
+
+    @rx.var
+    def tag_suggestions(self) -> list[str]:
+        """The datalist under the tag input: defined tags not yet on the ride."""
+        attached = {pill.name for pill in self.ride_tags}
+        return [name for name in self.tag_options if name not in attached]
 
     @rx.var
     def lap_count(self) -> int:
@@ -345,7 +359,7 @@ class RideDetailState(rx.State):
 
         self.title = ride.name
         self.subtitle = ride.start_time.strftime("%A, %d %B %Y at %H:%M")
-        self.in_analysis = not ride.excluded
+        self.tag_query = ""
 
         self._load_channels(stream)
         self._build_laps(ride, laps)
@@ -355,6 +369,7 @@ class RideDetailState(rx.State):
         self._rebuild_chart()
         with rx.session() as badge_session:
             self._load_badges(badge_session, ride_id)
+            self._load_tags(badge_session, ride_id)
         # Last, and with no `yield` between here and the figures above, so the
         # flag and the finished figures reach the client in one delta and the
         # plot's first mount already holds the final figure.
@@ -633,42 +648,68 @@ class RideDetailState(rx.State):
         log.info("ride_detail.bike.set", ride_id=self.ride_id, bike_id=new_bike_id)
         return notify_success(f"Bike set to {name}.")
 
-    def set_in_analysis(self, value: bool):
-        """Include the ride in analysis, or exclude it (AGENTS.md rule 42).
+    # ------------------------------------------------------------------
+    # Tags
+    # ------------------------------------------------------------------
 
-        Only the route's statistics are precomputed from the flag, so the
-        route is the one thing to refresh. Fitness and the dashboard query
-        through ``analysis_rides`` on their next load. The FTP rewrite is not
-        triggered: excluding a ride changes no threshold, and the ride keeps a
-        correct TSS so that restoring it needs no recalculation.
+    def _load_tags(self, session: Any, ride_id: int) -> None:
+        self.ride_tags = load_ride_tags(session, [ride_id]).get(ride_id, [])
+        self.tag_options = [tag.name for tag in all_tags(session)]
+
+    @rx.event
+    def set_tag_query(self, value: str):
+        self.tag_query = value
+
+    @rx.event
+    def handle_tag_key(self, key: str):
+        """Enter in the tag input attaches what was typed."""
+        if key == "Enter":
+            return self.add_tag(self.tag_query)
+        return None
+
+    def add_tag(self, query: str) -> Any:
+        """Attach a tag defined in Settings to this ride.
+
+        Only defined tags can be attached (rule 43): an unknown name warns and
+        keeps the input, so a typo can be fixed rather than retyped. An
+        excluding tag changes the ride's route statistics, so the route is
+        refreshed — fitness and the dashboard query through
+        ``analysis_rides`` on their next load. The FTP rewrite is not
+        triggered: a tag changes no threshold, and the ride keeps a correct TSS
+        so taking the tag off again needs no recalculation.
 
         An evaluation taken from this ride is deliberately left alone — it
         governs every later ride's TSS, and whether it is still right is
         Arne's call — but excluding the ride says its data is suspect, so the
         toast points at it.
         """
-        self.in_analysis = value
-        with rx.session() as session:
-            ride = session.get(Ride, int(self.ride_id))
-            if ride is None:
-                return notify_error("That ride no longer exists.")
-            if ride.excluded == (not value):
+        name = match_tag(query, self.tag_options)
+        if name is None:
+            if not query.strip():
                 return None
+            return notify_warning(f"No tag “{query.strip()}”. Define it in Settings first.")
 
+        if any(pill.name == name for pill in self.ride_tags):
+            self.tag_query = ""
+            return None
+
+        ride_id = int(self.ride_id)
+        with rx.session() as session:
+            tag = find_tag_by_name(session, name)
+            if tag is None or session.get(Ride, ride_id) is None:
+                return notify_error("That tag or ride no longer exists.")
             # Read before the commit expires the instance (rule 24).
-            route_id = ride.route_id
-            ride.excluded = not value
-            session.add(ride)
+            tag_id, excludes = tag.id or 0, tag.effect == TAG_EFFECT_EXCLUDE
+            session.add(RideTag(ride_id=ride_id, tag_id=tag_id))
             session.commit()
+            if excludes:
+                refresh_routes_for_rides(session, [ride_id])
+            self._load_tags(session, ride_id)
 
-            if route_id is not None:
-                route = session.get(Route, route_id)
-                if route is not None:
-                    refresh_route_stats(session, route)
-
-        log.info("ride.exclude", ride_id=self.ride_id, excluded=not value)
-        if value:
-            return notify_success("Ride is back in analysis.")
+        self.tag_query = ""
+        log.info("ride.tag.add", ride_id=ride_id, tag_id=tag_id, excludes=excludes)
+        if not excludes:
+            return None
         evaluated = sorted({badge.label for badge in self.fitness_badges})
         if evaluated:
             return notify_warning(
@@ -676,6 +717,27 @@ class RideDetailState(rx.State):
                 "evaluation on the Fitness page."
             )
         return notify_success("Ride excluded from analysis.")
+
+    @rx.event
+    def remove_tag(self, tag_id: int):
+        """Take a tag off this ride; the mirror of :meth:`add_tag`."""
+        ride_id = int(self.ride_id)
+        with rx.session() as session:
+            link = session.get(RideTag, (ride_id, tag_id))
+            if link is None:
+                self._load_tags(session, ride_id)
+                return None
+            excludes = any(p.excludes for p in self.ride_tags if p.id == tag_id)
+            session.delete(link)
+            session.commit()
+            if excludes:
+                refresh_routes_for_rides(session, [ride_id])
+            self._load_tags(session, ride_id)
+
+        log.info("ride.tag.remove", ride_id=ride_id, tag_id=tag_id, excludes=excludes)
+        if excludes and not any(p.excludes for p in self.ride_tags):
+            return notify_success("Ride is back in analysis.")
+        return None
 
     @rx.event
     async def set_route(self, value: str):

@@ -33,9 +33,20 @@ from .ride import (
     RideNote,
     RideStream,
     analysis_rides,
+    excluded_ride_ids,
     in_analysis,
 )
 from .route import Route, RouteForm
+from .tag import (
+    TAG_COLORS,
+    TAG_EFFECT_EXCLUDE,
+    TAG_EFFECTS,
+    TAG_NAME_MAX_LENGTH,
+    RideTag,
+    Tag,
+    TagForm,
+    match_tag,
+)
 
 __all__ = [
     "DEFAULT_BACKFILL_DAYS",
@@ -50,6 +61,10 @@ __all__ = [
     "METHOD_LAP",
     "METHOD_WINDOW",
     "SENSOR_TYPES",
+    "TAG_COLORS",
+    "TAG_EFFECTS",
+    "TAG_EFFECT_EXCLUDE",
+    "TAG_NAME_MAX_LENGTH",
     "Bike",
     "BikeForm",
     "BikeSensor",
@@ -60,10 +75,15 @@ __all__ = [
     "Ride",
     "RideNote",
     "RideStream",
+    "RideTag",
     "Route",
     "RouteForm",
+    "Tag",
+    "TagForm",
     "analysis_rides",
+    "excluded_ride_ids",
     "get_account",
     "in_analysis",
+    "match_tag",
     "now_utc",
 ]
