@@ -9,8 +9,10 @@ import reflex as rx
 
 from ..components.cards import card_grid
 from ..components.map_view import route_preview_svg
+from ..components.tags import tag_pill
 from ..navigation import routes
 from ..states.rides_state import RideCard, RideEvalBadge, RidesState
+from ..states.tags_state import TagPill
 from ..ui.base import base_page
 
 
@@ -80,15 +82,7 @@ def _ride_card(ride: RideCard) -> rx.Component:
                             color_scheme=rx.cond(ride.bike_assigned, "gray", "red"),
                         ),
                         rx.foreach(ride.evaluations, _eval_badge),
-                        rx.cond(
-                            ride.excluded,
-                            rx.badge(
-                                rx.icon("eye-off", size=12),
-                                "Excluded",
-                                variant="outline",
-                                color_scheme="gray",
-                            ),
-                        ),
+                        rx.foreach(ride.tags, lambda pill: tag_pill(pill)),
                         spacing="2",
                         align="center",
                         wrap="wrap",
@@ -119,6 +113,44 @@ def _ride_card(ride: RideCard) -> rx.Component:
         ),
         href=ride.detail_href,
         underline="none",
+        width="100%",
+    )
+
+
+def _filter_chip(pill: TagPill) -> rx.Component:
+    """A tag as a filter toggle: solid while selected, soft otherwise."""
+    active = RidesState.selected_tags.contains(pill.id)
+    return rx.badge(
+        rx.cond(pill.excludes, rx.icon("eye-off", size=12)),
+        pill.name,
+        variant=rx.cond(active, "solid", "soft"),
+        color_scheme=pill.color,
+        radius="full",
+        size="2",
+        cursor="pointer",
+        user_select="none",
+        on_click=RidesState.toggle_tag(pill.id),
+    )
+
+
+def _tag_filter() -> rx.Component:
+    """Narrow the list to rides carrying any of the selected tags."""
+    return rx.hstack(
+        rx.icon("filter", size=15, color=rx.color("gray", 10)),
+        rx.foreach(RidesState.filter_tags, _filter_chip),
+        rx.cond(
+            RidesState.filtering,
+            rx.button(
+                "Clear",
+                size="1",
+                variant="ghost",
+                color_scheme="gray",
+                on_click=RidesState.clear_tag_filter,
+            ),
+        ),
+        spacing="2",
+        align="center",
+        wrap="wrap",
         width="100%",
     )
 
@@ -182,7 +214,7 @@ def rides() -> rx.Component:
                     rx.text(
                         rx.cond(
                             RidesState.has_rides,
-                            RidesState.ride_count.to_string() + " ride(s) recorded.",
+                            RidesState.count_text,
                             "Nothing imported yet.",
                         ),
                         size="2",
@@ -196,9 +228,10 @@ def rides() -> rx.Component:
                 width="100%",
                 align="center",
             ),
+            rx.cond(RidesState.filter_tags.length() > 0, _tag_filter()),
             rx.cond(
                 RidesState.has_rides,
-                card_grid(rx.foreach(RidesState.rides, _ride_card)),
+                card_grid(rx.foreach(RidesState.visible_rides, _ride_card)),
                 _empty_state(),
             ),
             spacing="4",

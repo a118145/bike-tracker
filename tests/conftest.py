@@ -10,9 +10,10 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from sqlmodel import SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine
 
 from bike_tracker.ingest.fit import ParsedRide, parse
+from bike_tracker.models import RideTag, Tag
 
 DOCS = Path(__file__).resolve().parent.parent / "docs"
 
@@ -54,3 +55,21 @@ def db_url(tmp_path: Path) -> Iterator[str]:
     SQLModel.metadata.create_all(engine)
     yield url
     engine.dispose()
+
+
+def tag_ride(
+    session: Session, ride_id: int, *, effect: str | None, name: str = "Not training"
+) -> Tag:
+    """Put a tag on a ride, creating the tag if it does not exist yet.
+
+    Writes the link directly, as the ride-detail handler does; refreshing the
+    route is left to the test, which is usually what it is checking.
+    """
+    tag = Tag(name=name, effect=effect)
+    session.add(tag)
+    session.commit()
+    session.refresh(tag)
+    session.add(RideTag(ride_id=ride_id, tag_id=tag.id or 0))
+    session.commit()
+    session.refresh(tag)
+    return tag

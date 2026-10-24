@@ -44,6 +44,7 @@ from bike_tracker.models import (
     EVAL_BASELINE,
     EVAL_FTP,
     EVAL_LTHR,
+    TAG_EFFECT_EXCLUDE,
     Bike,
     FitnessEval,
     Lap,
@@ -51,16 +52,25 @@ from bike_tracker.models import (
     Ride,
     RideStream,
     Route,
+    Tag,
+    match_tag,
 )
 from bike_tracker.states.dashboard_state import RideTrack, dashboard_traces, ride_totals
 from bike_tracker.states.fitness_state import _duration_label, _value_text
 from bike_tracker.states.ride_detail_state import _stats
-from bike_tracker.states.rides_state import _to_badge, _to_card, group_evaluations
+from bike_tracker.states.rides_state import (
+    RideCard,
+    _to_badge,
+    _to_card,
+    filter_by_tags,
+    group_evaluations,
+)
 from bike_tracker.states.route_detail_state import (
     _route_stats,
 )
 from bike_tracker.states.route_detail_state import _to_row as _to_ride_row
 from bike_tracker.states.routes_state import _to_card as _to_route_card
+from bike_tracker.states.tags_state import TagPill, group_tags, to_pill
 from bike_tracker.utils.formatting import (
     EMPTY,
     format_balance,
@@ -105,8 +115,6 @@ RIDE_ONLY_FIELDS = frozenset(
         # own and inherits its ride's resolved FTP.
         "device_ftp_w",
         "device_lthr_bpm",
-        # Curation, not a metric: a ride is in analysis or not as a whole.
-        "excluded",
         "external_id",
         "fit_hash",
         "has_trailer",
@@ -1137,3 +1145,63 @@ def test_a_ride_with_no_bike_still_counts_toward_the_totals() -> None:
 
     assert everything.distance_m == 15_000.0
     assert just_the_bike.distance_m == 10_000.0
+
+
+# ---------------------------------------------------------------------------
+# Tags (AGENTS.md rule 43)
+# ---------------------------------------------------------------------------
+
+
+def _pill(tag_id: int, name: str) -> TagPill:
+    return TagPill(id=tag_id, name=name)
+
+
+def test_a_typed_tag_matches_ignoring_case_and_whitespace() -> None:
+    names = ["Commute", "Not training"]
+    assert match_tag("  not TRAINING ", names) == "Not training"
+    assert match_tag("commute", names) == "Commute"
+
+
+def test_an_unknown_or_blank_tag_matches_nothing() -> None:
+    assert match_tag("Commuter", ["Commute"]) is None
+    assert match_tag("   ", ["Commute"]) is None
+
+
+def test_tags_are_grouped_per_ride_and_sorted_by_name() -> None:
+    rows = [
+        (1, Tag(id=10, name="trailer", color="teal")),
+        (1, Tag(id=11, name="Commute", color="blue", effect=None)),
+        (2, Tag(id=12, name="Not training", effect=TAG_EFFECT_EXCLUDE)),
+    ]
+    grouped = group_tags(rows)
+    assert [p.name for p in grouped[1]] == ["Commute", "trailer"]
+    assert grouped[2][0].excludes
+    assert not grouped[1][0].excludes
+
+
+def test_an_unknown_colour_falls_back_to_gray() -> None:
+    """The colour goes straight into `color_scheme`; a bad value must not."""
+    assert to_pill(Tag(id=1, name="x", color="chartreuse")).color == "gray"
+
+
+def test_the_tag_filter_shows_rides_with_any_selected_tag() -> None:
+    cards = [
+        RideCard(id=1, tag_ids=[10]),
+        RideCard(id=2, tag_ids=[11]),
+        RideCard(id=3, tag_ids=[]),
+        RideCard(id=4, tag_ids=[10, 11]),
+    ]
+    assert [c.id for c in filter_by_tags(cards, [])] == [1, 2, 3, 4]
+    assert [c.id for c in filter_by_tags(cards, [10])] == [1, 4]
+    assert [c.id for c in filter_by_tags(cards, [10, 11])] == [1, 2, 4]
+
+
+def test_a_ride_card_carries_its_tags_and_exclusion(imported: ImportedRide) -> None:
+    ride, _laps, _stream, bikes = imported
+    ride_id = ride.id or 0
+    pills = [_pill(10, "Commute"), _pill(11, "Not training")]
+    card = _to_card(ride, bikes, {}, {ride_id: pills}, {ride_id})
+    assert card.tag_ids == [10, 11]
+    assert [p.name for p in card.tags] == ["Commute", "Not training"]
+    assert card.excluded
+    assert not _to_card(ride, bikes, {}).excluded

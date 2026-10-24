@@ -17,7 +17,7 @@ The order below is deliberate and each step depends on the one before it:
 """
 
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -36,6 +36,7 @@ from ..models import (
     Ride,
     RideStream,
     Route,
+    excluded_ride_ids,
 )
 from ..utils.logging import get_logger
 from . import streams
@@ -458,7 +459,8 @@ def refresh_route_stats(session: Session, route: Route) -> Route | None:
         log.info("route.pruned", route_id=route_id, name=name)
         return None
 
-    counted = [r for r in rides if not r.excluded]
+    excluded = excluded_ride_ids(session, (r.id for r in rides if r.id is not None))
+    counted = [r for r in rides if r.id not in excluded]
     route.ride_count = len(counted)
     route.avg_distance_m = _mean([r.distance_m for r in counted])
     route.avg_elevation_gain_m = _mean([r.elevation_gain_m for r in counted])
@@ -470,6 +472,29 @@ def refresh_route_stats(session: Session, route: Route) -> Route | None:
 
 def _mean(values: list[float]) -> float | None:
     return sum(values) / len(values) if values else None
+
+
+def refresh_routes_for_rides(session: Session, ride_ids: Iterable[int]) -> int:
+    """Refresh the statistics of every route these rides sit on.
+
+    Called whenever the set of excluded rides changes — an excluding tag put
+    on or taken off a ride, a tag's effect switched, an excluding tag deleted
+    (AGENTS.md rule 43). Each route is refreshed once, however many of the
+    rides share it. Returns the number of routes refreshed.
+    """
+    ids = list(ride_ids)
+    if not ids:
+        return 0
+    route_ids = set(
+        session.exec(
+            select(Ride.route_id).where(col(Ride.id).in_(ids), col(Ride.route_id).is_not(None))
+        ).all()
+    )
+    for route_id in route_ids:
+        route = session.get(Route, route_id)
+        if route is not None:
+            refresh_route_stats(session, route)
+    return len(route_ids)
 
 
 def create_manual_route(session: Session, ride: Ride, base_name: str) -> Route:

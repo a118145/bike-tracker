@@ -17,10 +17,20 @@ from sqlmodel import Session, create_engine, select
 from bike_tracker.ingest.importer import recalculate_odometer
 from bike_tracker.ingest.seed import seed_bikes
 from bike_tracker.ingest.sources.file import import_file
-from bike_tracker.models import Bike, BikeForm, BikeSensor, Ride, analysis_rides
+from bike_tracker.models import (
+    TAG_EFFECT_EXCLUDE,
+    Bike,
+    BikeForm,
+    BikeSensor,
+    Ride,
+    RideTag,
+    TagForm,
+    analysis_rides,
+    excluded_ride_ids,
+)
 from bike_tracker.utils.validation import parse_form
 
-from .conftest import EVENING_FIT
+from .conftest import EVENING_FIT, tag_ride
 
 
 def _submit(db_url: str, form: dict[str, str]) -> Bike:
@@ -329,31 +339,62 @@ def test_the_shared_strap_alone_still_does_not_identify_a_bike(db_url: str) -> N
 
 
 # ---------------------------------------------------------------------------
-# Excluding a ride from analysis (AGENTS.md rule 42)
+# Excluding a ride from analysis (AGENTS.md rules 42 and 43)
 # ---------------------------------------------------------------------------
 
 
-def _import_excluded(session: Session) -> Ride:
+def _import_one(session: Session) -> Ride:
     seed_bikes(session)
     import_file(EVENING_FIT, session)
-    ride = session.exec(select(Ride)).one()
-    ride.excluded = True
-    session.add(ride)
-    session.commit()
-    session.refresh(ride)
-    return ride
+    return session.exec(select(Ride)).one()
 
 
-def test_an_excluded_ride_is_not_in_analysis(db_url: str) -> None:
+def _analysed(session: Session) -> list[int | None]:
+    return [r.id for r in session.exec(analysis_rides()).all()]
+
+
+def test_a_ride_with_an_excluding_tag_is_not_in_analysis(db_url: str) -> None:
     engine = create_engine(db_url)
     with Session(engine) as session:
-        ride = _import_excluded(session)
-        assert session.exec(analysis_rides()).all() == []
+        ride = _import_one(session)
+        ride_id = ride.id or 0
+        tag = tag_ride(session, ride_id, effect=TAG_EFFECT_EXCLUDE)
+        assert _analysed(session) == []
+        assert excluded_ride_ids(session, [ride_id]) == {ride_id}
 
-        ride.excluded = False
-        session.add(ride)
+        session.delete(session.get(RideTag, (ride_id, tag.id)))
         session.commit()
-        assert [r.id for r in session.exec(analysis_rides()).all()] == [ride.id]
+        assert _analysed(session) == [ride_id]
+        assert excluded_ride_ids(session, [ride_id]) == set()
+    engine.dispose()
+
+
+def test_a_tag_without_an_effect_changes_nothing(db_url: str) -> None:
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        ride = _import_one(session)
+        tag_ride(session, ride.id or 0, effect=None, name="Commute")
+        assert _analysed(session) == [ride.id]
+    engine.dispose()
+
+
+def test_the_effect_decides_and_the_name_does_not(db_url: str) -> None:
+    """Renaming is cosmetic; switching the effect is what moves the ride."""
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        ride = _import_one(session)
+        ride_id = ride.id or 0
+        tag = tag_ride(session, ride_id, effect=TAG_EFFECT_EXCLUDE)
+
+        tag.name = "Anything else"
+        session.add(tag)
+        session.commit()
+        assert _analysed(session) == [], "a rename changed which rides count"
+
+        tag.effect = None
+        session.add(tag)
+        session.commit()
+        assert _analysed(session) == [ride_id]
     engine.dispose()
 
 
@@ -362,7 +403,36 @@ def test_an_excluded_ride_still_counts_on_the_odometer(db_url: str) -> None:
     happen: it still wore the bike."""
     engine = create_engine(db_url)
     with Session(engine) as session:
-        ride = _import_excluded(session)
+        ride = _import_one(session)
+        tag_ride(session, ride.id or 0, effect=TAG_EFFECT_EXCLUDE)
         assert ride.bike_id is not None
         assert recalculate_odometer(session, ride.bike_id) == pytest.approx(ride.distance_m)
     engine.dispose()
+
+
+# ---------------------------------------------------------------------------
+# Tag form
+# ---------------------------------------------------------------------------
+
+
+def test_the_tag_form_trims_the_name_and_maps_no_effect_to_none() -> None:
+    parsed, errors = parse_form({"name": "  Commute ", "color": "teal", "effect": ""}, TagForm)
+    assert errors == {}
+    assert parsed is not None
+    assert parsed.name == "Commute"
+    assert parsed.effect is None
+
+
+@pytest.mark.parametrize(
+    ("form", "field"),
+    [
+        ({"name": "   ", "color": "gray", "effect": ""}, "name"),
+        ({"name": "x" * 41, "color": "gray", "effect": ""}, "name"),
+        ({"name": "Commute", "color": "chartreuse", "effect": ""}, "color"),
+        ({"name": "Commute", "color": "gray", "effect": "delete_ride"}, "effect"),
+    ],
+)
+def test_the_tag_form_rejects(form: dict[str, str], field: str) -> None:
+    parsed, errors = parse_form(form, TagForm)
+    assert parsed is None
+    assert field in errors

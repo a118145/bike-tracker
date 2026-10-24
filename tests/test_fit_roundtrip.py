@@ -24,13 +24,23 @@ from sqlmodel import Session, col, create_engine, select
 from bike_tracker import metrics
 from bike_tracker.ingest import streams
 from bike_tracker.ingest.fit import ParsedRide, name_from_filename, parse
-from bike_tracker.ingest.importer import import_ride, refresh_route_stats
+from bike_tracker.ingest.importer import import_ride, refresh_route_stats, refresh_routes_for_rides
 from bike_tracker.ingest.seed import seed_bikes
 from bike_tracker.ingest.sources.file import import_file
 from bike_tracker.metrics.geo import EARTH_RADIUS_M
-from bike_tracker.models import Bike, Lap, MetricFields, Ride, RideStream, Route
+from bike_tracker.models import (
+    TAG_EFFECT_EXCLUDE,
+    Bike,
+    Lap,
+    MetricFields,
+    Ride,
+    RideStream,
+    RideTag,
+    Route,
+)
 
 from .conftest import ALL_FIT_FILES, EVENING_FIT, MORNING_FIT
+from .conftest import tag_ride as _tag
 
 # Normalized power is a pure computation over the recorded samples; ours and
 # the device's must agree closely or one of them is wrong.
@@ -692,14 +702,35 @@ def test_an_excluded_ride_leaves_its_route_statistics(db_url: str) -> None:
         assert route is not None
         assert route.ride_count == 2
 
-        second.excluded = True
-        session.add(second)
-        session.commit()
+        second_id = second.id or 0
+        _tag(session, second_id, effect=TAG_EFFECT_EXCLUDE)
+        assert refresh_routes_for_rides(session, [second_id]) == 1
 
-        route = refresh_route_stats(session, _get(session, Route, shared))
-        assert route is not None
+        route = _get(session, Route, shared)
         assert route.ride_count == 1
         assert route.avg_distance_m == pytest.approx(first.distance_m)
+    engine.dispose()
+
+
+def test_switching_a_tags_effect_moves_the_route_statistics(db_url: str) -> None:
+    """The effect decides, not the name: the same tag on the same ride
+    excludes it only while its effect says so (AGENTS.md rule 43)."""
+    engine = create_engine(db_url)
+    with Session(engine) as session:
+        seed_bikes(session)
+        ride = _get(session, Ride, import_file(EVENING_FIT, session).ride_id)
+        ride_id, route_id = ride.id or 0, ride.route_id
+        assert route_id is not None
+
+        tag = _tag(session, ride_id, effect=None)
+        refresh_routes_for_rides(session, [ride_id])
+        assert _get(session, Route, route_id).ride_count == 1
+
+        tag.effect = TAG_EFFECT_EXCLUDE
+        session.add(tag)
+        session.commit()
+        refresh_routes_for_rides(session, [ride_id])
+        assert _get(session, Route, route_id).ride_count == 0
     engine.dispose()
 
 
@@ -717,9 +748,7 @@ def test_excluding_a_routes_only_ride_keeps_the_route(db_url: str) -> None:
         assert route_id is not None
         distance_m = ride.distance_m
 
-        ride.excluded = True
-        session.add(ride)
-        session.commit()
+        tag = _tag(session, ride.id or 0, effect=TAG_EFFECT_EXCLUDE)
 
         route = refresh_route_stats(session, _get(session, Route, route_id))
         assert route is not None, "excluding the only ride pruned its route"
@@ -728,9 +757,8 @@ def test_excluding_a_routes_only_ride_keeps_the_route(db_url: str) -> None:
         assert route.avg_elevation_gain_m is None
         assert route.avg_moving_time_s is None
 
-        ride = _get(session, Ride, ride.id)
-        ride.excluded = False
-        session.add(ride)
+        link = session.get(RideTag, (ride.id, tag.id))
+        session.delete(link)
         session.commit()
 
         route = refresh_route_stats(session, _get(session, Route, route_id))

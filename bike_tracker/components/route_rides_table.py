@@ -8,12 +8,13 @@ stated once.
 
 Kept route-specific on purpose, like the scaffold's table it is modelled on: a
 generic table over arbitrary models needs column descriptors and per-cell
-renderers, which is more machinery than nine fixed columns justify.
+renderers, which is more machinery than ten fixed columns justify.
 """
 
 import reflex as rx
 
 from ..states.route_detail_state import RideRow, RouteDetailState
+from .tags import EXCLUDES_TITLE, tag_pill
 
 
 def _row(ride: RideRow) -> rx.Component:
@@ -29,11 +30,14 @@ def _row(ride: RideRow) -> rx.Component:
         rx.table.cell(ride.intensity_factor),
         rx.table.cell(ride.tss),
         rx.table.cell(ride.avg_hr),
+        rx.table.cell(
+            rx.hstack(rx.foreach(ride.tags, lambda pill: tag_pill(pill)), spacing="1", wrap="wrap"),
+        ),
         align="center",
         # Excluded from analysis: still listed, but visibly not counted in
         # the summary card or the map above.
         opacity=rx.cond(ride.excluded, "0.45", "1"),
-        title=rx.cond(ride.excluded, "Excluded from analysis", ""),
+        title=rx.cond(ride.excluded, EXCLUDES_TITLE, ""),
     )
 
 
@@ -49,6 +53,7 @@ def _header() -> rx.Component:
             rx.table.column_header_cell("IF"),
             rx.table.column_header_cell("TSS"),
             rx.table.column_header_cell("Ø HR"),
+            rx.table.column_header_cell("Tags"),
         ),
     )
 
@@ -93,7 +98,7 @@ def route_rides_table() -> rx.Component:
                     variant="surface",
                     width="100%",
                 ),
-                # Nine columns will not fit a narrow window; scroll the table
+                # Ten columns will not fit a narrow window; scroll the table
                 # rather than letting it push the page sideways.
                 width="100%",
                 overflow_x="auto",

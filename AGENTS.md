@@ -214,7 +214,8 @@ advice. Read it before editing.
     anywhere else is bypassable. It returns `Route | None`; never call it
     before the ride's new `route_id` is committed. "No rides" means no rides
     *at all*: an excluded ride keeps its route alive, and only the statistics
-    skip it (rule 42).
+    skip it (rule 42). Anything that changes *which* rides are excluded goes
+    through `refresh_routes_for_rides` (rule 43).
 
 26. **A card carrying an inline action must not be an `rx.link`.**
     `stop_propagation` halts bubbling but does not cancel an anchor's
@@ -487,12 +488,38 @@ advice. Read it before editing.
     route statistics and map, and the MCP when it lands. Everything that
     describes the *bike or the import* deliberately does not: odometer,
     deduplication, `refresh_ftp_dependent`, the route backfill and
-    `assign_route`. Never write `excluded == False` by hand; a second
+    `assign_route`.
+
+    "Excluded" means *carries a tag whose effect is `exclude_from_analysis`*
+    (rule 43). Ask only through `in_analysis()`, `analysis_rides()` or
+    `excluded_ride_ids()` — never join `RideTag` to `Tag` by hand. A second
     definition is how the app and the LLM end up disagreeing about one ride.
 
     An excluded ride stays in the rides list and on its route's table,
     dimmed, so it can be found and restored. Its `FitnessEval` is left alone —
-    it governs every later ride's TSS — and the toggle warns instead.
+    it governs every later ride's TSS — and adding the tag warns instead.
+
+43. **Tags are global, defined only in Settings, and act through their
+    `effect` — never through their name.** Ride detail attaches existing tags
+    and refuses unknown names; it never creates one. Renaming "Not training"
+    must not change a single number, so no code may compare `Tag.name` to a
+    literal. A new behaviour (`hr_invalid`, `power_invalid`) is a new value in
+    `TAG_EFFECTS` plus the code that honours it.
+
+    Four edits change which rides are excluded:
+    - an excluding tag put on a ride;
+    - an excluding tag taken off a ride;
+    - a tag's effect switched;
+    - an excluding tag deleted.
+
+    Each of them calls `ingest.importer.refresh_routes_for_rides` for the
+    affected rides, or route averages go stale. Deleting a tag removes its
+    `RideTag` rows first: SQLite does not enforce the foreign key, and an
+    orphan link would keep excluding a ride through a tag nobody can see.
+
+    Ride `excluded` was released as a boolean in `v0.1.2`; migration
+    `a7d3e2f91b04` moves those rides onto a seeded "Not training" tag, so the
+    set in analysis is identical before and after.
 
 ## Type checking
 

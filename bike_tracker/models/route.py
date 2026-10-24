@@ -24,7 +24,7 @@ class Route(SQLModel, table=True):
     name: str = Field(index=True)
 
     # Averages over the rides currently assigned to this route that count in
-    # analysis (`Ride.excluded` unset). Recomputed on assignment or exclusion
+    # analysis (`in_analysis()`). Recomputed on assignment or exclusion
     # change rather than at query time (brief §1: precompute). `None` when no
     # ride on the route counts: the average does not exist, and 0.0 would
     # reach the MCP layer as a real value.
