@@ -7,7 +7,8 @@ would shadow the SDK)::
 
 Transport is streamable HTTP on ``:8000/mcp``. Cloudflare's Access MCP portal
 sits in front and does the OAuth with claude.ai; it reaches this server with a
-static bearer token (``auth_type: bearer``), which :class:`BearerGuard` checks.
+static bearer token (a custom ``Authorization`` header on the portal's server
+entry), which :class:`BearerGuard` checks.
 A blocked user can otherwise reach an upstream directly and bypass the portal's
 policies (brief §3.4), which is why the token is mandatory and the server
 refuses to start without it.
