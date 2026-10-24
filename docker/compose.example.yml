@@ -25,15 +25,24 @@ services:
       # `reflex` user). Back this directory up — it is the only copy of the
       # ride notes (brief §8).
       - /opt/bike-tracker/data:/app/data
+    networks:
+      - default
+      - bike-mcp
 
   # The MCP server: its own image, released with mcp-v* tags (mcp_server/).
   bike-tracker-mcp:
     image: <dockerhub-user>/bike-tracker-mcp:latest
     pull_policy: always
     restart: unless-stopped
-    # NO `ports:` — never. The tunnel reaches it over the compose network; a
-    # host port would let anyone on the LAN (or a blocked user who learns the
-    # address) bypass the Cloudflare Access policies (brief §3.4).
+    # NO `ports:` — never. The tunnel reaches it over bike-mcp; a host port
+    # would let anyone on the LAN (or a blocked user who learns the address)
+    # bypass the Cloudflare Access policies (brief §3.4).
+    networks:
+      bike-mcp:
+        # The tunnel's private hostname route. A route needs an FQDN, and
+        # cloudflared resolves it through Docker's DNS on this network.
+        aliases:
+          - mcp.bike.internal
     environment:
       BIKE_TRACKER_API_URL: http://bike-tracker:3000/api/v1
     # Mode 0600 from the vault. Keys:
@@ -43,13 +52,25 @@ services:
     depends_on:
       - bike-tracker
 
-  # Outbound-only tunnel to Cloudflare; its ingress rule points at
-  # http://bike-tracker-mcp:8000. Pin the version, never :latest.
+  # Outbound-only tunnel to Cloudflare. No public hostname: the portal reaches
+  # the MCP server through Gateway by the private hostname route
+  # mcp.bike.internal (DEPLOY.md M5). Pin the version, never :latest.
   cloudflared:
     image: cloudflare/cloudflared:<pinned-version>
     restart: unless-stopped
     command: tunnel --no-autoupdate run
     # TUNNEL_TOKEN only, mode 0600. Treat it like a vault key.
     env_file: /opt/bike-tracker/cloudflared.env
+    networks:
+      - bike-mcp
+      - bike-egress
     depends_on:
       - bike-tracker-mcp
+
+networks:
+  # App, MCP server and cloudflared only. Internal: the MCP server gets no
+  # internet access at all.
+  bike-mcp:
+    internal: true
+  # cloudflared's way out to Cloudflare.
+  bike-egress: {}

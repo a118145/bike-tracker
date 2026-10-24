@@ -10,9 +10,13 @@ tool forwards one endpoint of the bike-tracker REST API (`/api/v1`) and returns
 its JSON unchanged.
 
 ```
-claude.ai ─► Cloudflare Access MCP portal ─► cloudflared ─► bike-tracker-mcp :8000/mcp ─► bike-tracker /api/v1 ─► DB
-               (OAuth, tool allowlist)                       (bearer token)               (bearer token)
+claude.ai ─► Cloudflare MCP portal ─► Gateway + tunnel ─► cloudflared ─► bike-tracker-mcp :8000/mcp ─► bike-tracker /api/v1 ─► DB
+             (OAuth, Access policy)    (private hostname)                   (bearer token)               (bearer token)
 ```
+
+The server has no public hostname. The portal registers it as a private MCP
+server, so it is reachable only through the tunnel. See the MCP section of
+`docker/DEPLOY.md`.
 
 ## Tools
 

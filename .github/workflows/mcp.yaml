@@ -7,10 +7,10 @@
 # publishes nothing. The app's own workflow (build.yaml) ignores mcp_server/,
 # and the tag prefixes keep releases apart: `mcp-v*` here, `v*` there.
 #
-# Required repository secrets (shared with build.yaml, plus one):
-#   DOCKERHUB_USERNAME   Docker Hub user name
-#   DOCKERHUB_TOKEN      Docker Hub personal access token, scope Read/Write/Delete
-#   DOCKERHUB_MCP_REPO   <user>/bike-tracker-mcp, lowercase
+# Required repository secrets (separate from build.yaml's):
+#   DOCKERHUB_MCP_USERNAME   Docker Hub user name
+#   DOCKERHUB_MCP_TOKEN      Docker Hub personal access token, scope Read/Write/Delete
+#   DOCKERHUB_MCP_REPO       <user>/bike-tracker-mcp, lowercase
 #
 # The image is built without any secret: MCP_BEARER_TOKEN and
 # BIKE_TRACKER_API_TOKEN come from the server's env file at run time, and
