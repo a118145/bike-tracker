@@ -76,6 +76,13 @@ RUN REFLEX_DB_URL=sqlite:////tmp/build.db BUN_INSTALL_CACHE_DIR=/tmp/bun-cache \
         reflex export --frontend-only --no-zip \
     && rm -rf /tmp/build.db /tmp/bun-cache
 
+# The release this image is, reported by GET /api/v1/version so the MCP layer
+# can see what is deployed. CI passes the tag; a local build says "dev". Not a
+# secret — the one kind of value an ARG may carry here. Declared this late so a
+# new version does not invalidate the dependency and frontend layers above.
+ARG APP_VERSION=dev
+ENV APP_VERSION=${APP_VERSION}
+
 EXPOSE 3000
 
 # /_health checks the database as well as the process. start-period covers the

@@ -66,6 +66,7 @@ from ..models import (
     RideStream,
     RideTag,
     Route,
+    lap_window_s,
     match_tag,
     note_summary,
     save_ride_note,
@@ -73,6 +74,7 @@ from ..models import (
 from ..utils.formatting import (
     EMPTY,
     format_balance,
+    format_datetime,
     format_distance_km,
     format_duration,
     format_number,
@@ -385,7 +387,7 @@ class RideDetailState(rx.State):
             all_routes = session.exec(select(Route).order_by(col(Route.name))).all()
 
         self.title = ride.name
-        self.subtitle = ride.start_time.strftime("%A, %d %B %Y at %H:%M")
+        self.subtitle = format_datetime(ride.start_time, "%A, %d %B %Y at %H:%M")
         self.tag_query = ""
 
         self._load_channels(stream)
@@ -446,16 +448,14 @@ class RideDetailState(rx.State):
             # be a control that cannot do anything.
             return
 
-        # The stream's clock starts at the first record, the ride's at the
-        # session start — two seconds apart on the evening ride. Without the
-        # correction every lap window would be shifted by that much.
-        origin = ride.start_time.timestamp() + ride.stream_offset_s
+        # The same window import summarized the lap over: `lap_window_s`
+        # corrects for the stream clock starting at the first record rather
+        # than the session start (two seconds apart on the evening ride).
         time_s = np.asarray(self._time_s, dtype=np.float64)
         total_moving = sum(lap.moving_time_s or lap.elapsed_time_s for lap in laps) or 1.0
 
         for lap in laps:
-            start_s = lap.start_time.timestamp() - origin
-            end_s = start_s + lap.elapsed_time_s
+            start_s, end_s = lap_window_s(ride, lap)
             self._lap_bounds.append((start_s, end_s))
             self._lap_slices.append(metrics.window_indices(time_s, start_s, end_s))
 
@@ -1091,14 +1091,14 @@ class RideDetailState(rx.State):
 
         power = np.asarray(self._channels.get("power", []), dtype=np.float64)[i0:i1]
         if self.eval_type == EVAL_FTP:
-            if power.size < 2:
+            estimate = metrics.ftp_from_window(power)
+            if estimate is None:
                 self.eval_error = "This ride has no power data."
             else:
-                avg = float(np.nanmean(np.nan_to_num(power, nan=0.0)))
-                self._eval_value = metrics.ftp_from_20min(avg)
+                self._eval_value = estimate
                 self.eval_result_text = f"{format_number(self._eval_value)} W"
                 self.eval_detail_text = (
-                    f"{format_number(avg)} W average over "
+                    f"{format_number(estimate / metrics.FTP_FROM_20MIN_FACTOR)} W average over "
                     f"{format_duration(self._eval_span[1] - self._eval_span[0])}, scaled by 0.95"
                 )
         else:

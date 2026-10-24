@@ -21,6 +21,7 @@ from ..ingest.sources.file import import_bytes, scan_folder
 from ..models import EVAL_FTP, Bike, FitnessEval, Ride, excluded_ride_ids, load_note_summaries
 from ..navigation import routes
 from ..utils.formatting import (
+    format_date,
     format_distance_km,
     format_duration,
     format_number,
@@ -271,7 +272,7 @@ def _to_card(
         # Date only. The card is 360 px and the date now shares the title row,
         # so the time would cost the name a third of its width; it is still on
         # the detail page.
-        date=ride.start_time.strftime("%d %b %Y"),
+        date=format_date(ride.start_time, "%d %b %Y"),
         distance_km=format_distance_km(ride.distance_m),
         elevation_m=format_number(ride.elevation_gain_m),
         duration=format_duration(ride.moving_time_s),

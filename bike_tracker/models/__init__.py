@@ -10,14 +10,19 @@ that reason alone.
 
 from .bike import SENSOR_TYPES, Bike, BikeForm, BikeSensor
 from .fitness import (
+    CURVE_WINDOW_DAYS,
     EVAL_BASELINE,
     EVAL_FTP,
     EVAL_LTHR,
     FTP_FROM_20MIN_FACTOR,
+    MAX_CURVE_WINDOWS,
     METHOD_BEST_FIT,
     METHOD_LAP,
     METHOD_WINDOW,
     FitnessEval,
+    latest_evaluations,
+    power_curve_windows,
+    ride_efforts,
 )
 from .hammerhead import (
     DEFAULT_BACKFILL_DAYS,
@@ -36,11 +41,12 @@ from .ride import (
     analysis_rides,
     excluded_ride_ids,
     in_analysis,
+    lap_window_s,
     load_note_summaries,
     note_summary,
     save_ride_note,
 )
-from .route import Route, RouteForm
+from .route import Route, RouteForm, RouteSummary, last_ridden_by_route, route_summary
 from .tag import (
     TAG_COLORS,
     TAG_EFFECT_EXCLUDE,
@@ -53,6 +59,7 @@ from .tag import (
 )
 
 __all__ = [
+    "CURVE_WINDOW_DAYS",
     "DEFAULT_BACKFILL_DAYS",
     "DEFAULT_POLL_INTERVAL_MIN",
     "EVAL_BASELINE",
@@ -61,6 +68,7 @@ __all__ = [
     "FTP_FROM_20MIN_FACTOR",
     "LOAD_SOURCE_HR",
     "LOAD_SOURCE_POWER",
+    "MAX_CURVE_WINDOWS",
     "METHOD_BEST_FIT",
     "METHOD_LAP",
     "METHOD_WINDOW",
@@ -83,15 +91,22 @@ __all__ = [
     "RideTag",
     "Route",
     "RouteForm",
+    "RouteSummary",
     "Tag",
     "TagForm",
     "analysis_rides",
     "excluded_ride_ids",
     "get_account",
     "in_analysis",
+    "lap_window_s",
+    "last_ridden_by_route",
+    "latest_evaluations",
     "load_note_summaries",
     "match_tag",
     "note_summary",
     "now_utc",
+    "power_curve_windows",
+    "ride_efforts",
+    "route_summary",
     "save_ride_note",
 ]

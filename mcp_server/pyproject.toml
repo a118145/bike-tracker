@@ -1,0 +1,36 @@
+[project]
+name = "bike-tracker-mcp"
+version = "0.1.0"
+description = "Read-only MCP server for bike-tracker: a thin pass-through of the app's REST API."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastmcp>=3.4",
+    "httpx>=0.28",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.0",
+    "pytest>=9.1.1",
+    "ruff>=0.17.2",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["bike_tracker_mcp", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

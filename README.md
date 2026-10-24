@@ -28,7 +28,8 @@ built on top of it. Dashboard, Routes, Fitness and Bikes are navigable stubs.
 | Routes: derived list, heat map, rename, manual creation | Done |
 | Dashboard, Fitness | Stubs |
 | Fitness-evaluation dialog | Not started |
-| Hammerhead poller, MCP server, Docker deployment | Not started |
+| Hammerhead poller, Docker deployment | Done |
+| REST API (`/api/v1`) and read-only MCP server (`mcp_server/`) | Done — see below |
 
 ## Running it
 
@@ -74,9 +75,23 @@ them.
 | `metrics/` | Pure calculations. **Imports no Reflex and no models.** |
 | `ingest/` | FIT parsing, the importer, and one module per ride source. |
 | `models/` | SQLModel tables; form models where a form feeds them. |
+| `api/` | Read-only REST API for the MCP server, behind a bearer token. |
 | `pages/` | One module per page. Composes components. |
 | `states/` | All other states. |
-| `utils/` | Casting, formatting, validation, logging. |
+| `utils/` | Casting, formatting, validation, logging, local time. |
+| `mcp_server/` | The MCP server — own image, `pyproject` and workflow ([README](mcp_server/README.md)). |
+
+### REST API and MCP server
+
+The app serves `/api/v1` on its own port, and every route requires
+`Authorization: Bearer $BIKE_TRACKER_API_TOKEN`. If that variable is unset,
+the API answers 503 on every route instead of opening up. It returns the
+same stored numbers the pages show (AGENTS.md rule 45).
+
+`mcp_server/` is a separate, small image. It forwards nine read-only tools to
+that API and is meant to sit behind Cloudflare's Access MCP portal; see
+[`mcp_server/README.md`](mcp_server/README.md) and the MCP section of
+`docker/DEPLOY.md`. App releases are tagged `v*`, MCP releases `mcp-v*`.
 
 ### Adding a page
 

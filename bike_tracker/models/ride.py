@@ -35,6 +35,7 @@ __all__ = [
     "analysis_rides",
     "excluded_ride_ids",
     "in_analysis",
+    "lap_window_s",
     "load_note_summaries",
     "note_summary",
     "save_ride_note",
@@ -168,6 +169,20 @@ class Lap(MetricFields, table=True):
 
     start_time: datetime
     end_time: datetime
+
+
+def lap_window_s(ride: Ride, lap: Lap) -> tuple[float, float]:
+    """A lap's ``(start_s, end_s)`` on the stream clock (``RideStream.time_s``).
+
+    The stream's clock starts at the first record, the ride's at the session
+    start — two seconds apart on the evening reference ride — so both ends are
+    shifted by ``stream_offset_s``. This is the window import summarized the
+    lap over; the ride page's lap selection and the API's window cutter use it
+    too, so all three cut the same samples.
+    """
+    start_s = (lap.start_time - ride.start_time).total_seconds() - ride.stream_offset_s
+    end_s = (lap.end_time - ride.start_time).total_seconds() - ride.stream_offset_s
+    return start_s, end_s
 
 
 @ModelRegistry.register

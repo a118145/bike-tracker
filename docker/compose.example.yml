@@ -17,10 +17,39 @@ services:
       # every page without a backend.
       - "<homeserver-lan-ip>:3000:3000"
     # Written by Ansible from the vault, mode 0600. Never committed, never
-    # baked into the image. Keys: see .env.example.
+    # baked into the image. Keys: see .env.example — including
+    # BIKE_TRACKER_API_TOKEN, without which /api answers 503 (fail closed).
     env_file: /opt/bike-tracker/app.env
     volumes:
       # Database and FIT drop folder. Must be owned by uid 1000 (the image's
       # `reflex` user). Back this directory up — it is the only copy of the
       # ride notes (brief §8).
       - /opt/bike-tracker/data:/app/data
+
+  # The MCP server: its own image, released with mcp-v* tags (mcp_server/).
+  bike-tracker-mcp:
+    image: <dockerhub-user>/bike-tracker-mcp:latest
+    pull_policy: always
+    restart: unless-stopped
+    # NO `ports:` — never. The tunnel reaches it over the compose network; a
+    # host port would let anyone on the LAN (or a blocked user who learns the
+    # address) bypass the Cloudflare Access policies (brief §3.4).
+    environment:
+      BIKE_TRACKER_API_URL: http://bike-tracker:3000/api/v1
+    # Mode 0600 from the vault. Keys:
+    #   MCP_BEARER_TOKEN        the token registered at the Cloudflare portal
+    #   BIKE_TRACKER_API_TOKEN  equal to the app's own value
+    env_file: /opt/bike-tracker/mcp.env
+    depends_on:
+      - bike-tracker
+
+  # Outbound-only tunnel to Cloudflare; its ingress rule points at
+  # http://bike-tracker-mcp:8000. Pin the version, never :latest.
+  cloudflared:
+    image: cloudflare/cloudflared:<pinned-version>
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    # TUNNEL_TOKEN only, mode 0600. Treat it like a vault key.
+    env_file: /opt/bike-tracker/cloudflared.env
+    depends_on:
+      - bike-tracker-mcp

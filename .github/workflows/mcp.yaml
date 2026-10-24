@@ -1,0 +1,143 @@
+# The MCP server image (mcp_server/), built and published apart from the app.
+#
+#   git tag mcp-v0.1.0 && git push origin mcp-v0.1.0
+#
+# pushes  <repo>:0.1.0, <repo>:0.1, <repo>:latest and <repo>:sha-<short>.
+# A push to main that touches mcp_server/ builds and checks the image but
+# publishes nothing. The app's own workflow (build.yaml) ignores mcp_server/,
+# and the tag prefixes keep releases apart: `mcp-v*` here, `v*` there.
+#
+# Required repository secrets (shared with build.yaml, plus one):
+#   DOCKERHUB_USERNAME   Docker Hub user name
+#   DOCKERHUB_TOKEN      Docker Hub personal access token, scope Read/Write/Delete
+#   DOCKERHUB_MCP_REPO   <user>/bike-tracker-mcp, lowercase
+#
+# The image is built without any secret: MCP_BEARER_TOKEN and
+# BIKE_TRACKER_API_TOKEN come from the server's env file at run time, and
+# docker/check-image.sh refuses an image with a secret-looking ENV.
+name: Build and push MCP image
+
+on:
+  push:
+    branches: [main]
+    tags: ["mcp-v*"]
+    paths:
+      - "mcp_server/**"
+      - "docker/check-image.sh"
+      - ".github/workflows/mcp.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CI_IMAGE: ci-mcp-image:test
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: mcp_server
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+      # Includes the contract test: every key in openapi_v1.json is named in
+      # its tool's docstring (AGENTS.md rule 46).
+      - run: uv run pytest -q
+
+  build:
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/setup-buildx-action@v3
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKERHUB_MCP_REPO }}
+          # The tag carries a prefix, so the semver patterns read it through
+          # `value` with the prefix cut off. `latest` only for a release.
+          flavor: latest=false
+          tags: |
+            type=match,pattern=mcp-v(\d+\.\d+\.\d+)$,group=1
+            type=match,pattern=mcp-v(\d+\.\d+)\.\d+$,group=1
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/mcp-v') }}
+            type=sha
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: mcp_server
+          file: mcp_server/Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: |
+            ${{ steps.meta.outputs.tags }}
+            ${{ env.CI_IMAGE }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=mcp
+          cache-to: type=gha,mode=max,scope=mcp
+
+      - name: Check the image for secrets and data
+        run: docker/check-image.sh "$CI_IMAGE"
+
+      # Offline, with a dummy token: the server must come up, answer its
+      # healthcheck, and refuse /mcp without the token. Without any token it
+      # must refuse to start at all.
+      - name: Smoke test
+        run: |
+          if docker run --rm --network none "$CI_IMAGE"; then
+            echo "started without MCP_BEARER_TOKEN"; exit 1
+          fi
+          docker run -d --name smoke --network none -e MCP_BEARER_TOKEN=dummy "$CI_IMAGE"
+          for i in $(seq 1 20); do
+            if docker exec smoke python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)" 2>/dev/null; then
+              code=$(docker exec smoke python -c "import urllib.request, urllib.error
+          try:
+              urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000/mcp', data=b'{}', method='POST'), timeout=4)
+              print(200)
+          except urllib.error.HTTPError as e:
+              print(e.code)")
+              docker rm -f smoke >/dev/null
+              [ "$code" = "401" ] && { echo "healthy, and /mcp refuses without token"; exit 0; }
+              echo "/mcp answered $code without a token"; exit 1
+            fi
+            sleep 1
+          done
+          echo "container did not become healthy"; docker logs smoke; exit 1
+
+      - name: Log in to Docker Hub
+        if: startsWith(github.ref, 'refs/tags/mcp-v')
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push
+        if: startsWith(github.ref, 'refs/tags/mcp-v')
+        env:
+          REPO: ${{ secrets.DOCKERHUB_MCP_REPO }}
+        run: docker push --all-tags "$REPO"
+
+      - name: Update Docker Hub description
+        if: startsWith(github.ref, 'refs/tags/mcp-v')
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ secrets.DOCKERHUB_MCP_REPO }}
+          readme-filepath: ./mcp_server/README.md

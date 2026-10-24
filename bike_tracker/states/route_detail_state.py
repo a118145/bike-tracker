@@ -25,10 +25,11 @@ from ..components.map_view import (
     build_map_figure,
     heat_opacity,
 )
-from ..models import Ride, Route, excluded_ride_ids, load_note_summaries
+from ..models import Ride, Route, excluded_ride_ids, load_note_summaries, route_summary
 from ..navigation import routes as route_urls
 from ..utils.formatting import (
     EMPTY,
+    format_date,
     format_distance_km,
     format_duration,
     format_number,
@@ -253,7 +254,7 @@ def _to_row(
 ) -> RideRow:
     return RideRow(
         id=ride.id or 0,
-        date=ride.start_time.strftime("%d %b %Y"),
+        date=format_date(ride.start_time, "%d %b %Y"),
         duration=format_duration(ride.moving_time_s),
         avg_speed=format_speed_kmh(ride.avg_speed_ms),
         avg_power=format_number(ride.avg_power_w),
@@ -275,23 +276,15 @@ def _route_stats(route: Route, rides: list[Ride]) -> dict[str, str]:
     The fastest time and the TSS figures come from the same rides already
     fetched for the table, so they cost no extra query.
     """
-    times = [r.moving_time_s for r in rides if r.moving_time_s > 0]
-    loads = [r.tss for r in rides if r.tss is not None]
-
-    fastest = min(times) if times else None
-    fastest_ride = (
-        min((r for r in rides if r.moving_time_s == fastest), key=lambda r: r.start_time)
-        if fastest is not None
-        else None
-    )
-
+    summary = route_summary(rides)
+    fastest = summary.fastest_moving_time_s
     return {
         "distance": format_distance_km(route.avg_distance_m),
         "elevation": format_number(route.avg_elevation_gain_m),
         "avg_time": format_duration(route.avg_moving_time_s),
         "ride_count": str(route.ride_count),
         "fastest": format_duration(fastest) if fastest is not None else EMPTY,
-        "fastest_on": (fastest_ride.start_time.strftime("%d %b %Y") if fastest_ride else EMPTY),
-        "avg_tss": format_number(sum(loads) / len(loads)) if loads else EMPTY,
-        "best_tss": format_number(max(loads)) if loads else EMPTY,
+        "fastest_on": format_date(summary.fastest_on, "%d %b %Y") or EMPTY,
+        "avg_tss": format_number(summary.avg_tss),
+        "best_tss": format_number(summary.best_tss),
     }

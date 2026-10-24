@@ -11,20 +11,29 @@ component, use a computed var on the state instead.
 from datetime import date, datetime
 from decimal import Decimal
 
+from .local_time import to_local
+
 _UNITS = ("B", "KB", "MB", "GB", "TB", "PB")
 
 
 def format_date(value: date | datetime | None, fmt: str = "%Y-%m-%d") -> str:
-    """Format a date, with empty string for None (never the text 'None')."""
+    """Format a date, with empty string for None (never the text 'None').
+
+    A ``datetime`` is a stored timestamp — naive UTC — and is shown on the
+    local calendar (``utils/local_time``). A plain ``date`` is already one.
+    """
     if value is None:
         return ""
+    if isinstance(value, datetime):
+        value = to_local(value)
     return value.strftime(fmt)
 
 
 def format_datetime(value: datetime | None, fmt: str = "%Y-%m-%d %H:%M") -> str:
+    """A stored (naive UTC) timestamp in local time."""
     if value is None:
         return ""
-    return value.strftime(fmt)
+    return to_local(value).strftime(fmt)
 
 
 def format_currency(

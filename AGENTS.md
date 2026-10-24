@@ -74,9 +74,11 @@ advice. Read it before editing.
 | `metrics/` | Pure calculations. Imports no Reflex and no models. |
 | `ingest/` | FIT parsing, the importer, one module per ride source. |
 | `models/` | SQLModel tables; form models only where a form feeds them. |
+| `api/` | REST API for the MCP server: response models, queries, routes, auth. |
 | `pages/` | One module per page. Composes components. |
 | `states/` | All other states. |
-| `utils/` | Casting, formatting, validation, logging. |
+| `utils/` | Casting, formatting, validation, logging, local time. |
+| `mcp_server/` (repo root) | The MCP server: own image, own `pyproject`, own workflow. |
 
 ## Rules
 
@@ -359,8 +361,10 @@ advice. Read it before editing.
     Every guard was checked by breaking the code and watching it fail.
 
     Only `ftp_at_time_w`, `intensity_factor` and `tss` are recomputed, from
-    the stored normalized power and moving time. A full `summarize` would need
-    a `ChannelWindow`, which can only be built from a parsed FIT file.
+    the stored normalized power and moving time. A full `summarize` over the
+    stored streams (`ChannelWindow.from_stream`) would recompute what the
+    device wrote into the FIT session — distance, ascent, timer — without that
+    message, and drift from the import-time values.
 
 33. **`rx.slider` binds `on_value_commit`, never `on_change`.** `on_change`
     fires continuously while a thumb is dragged, so a handler that recomputes
@@ -535,6 +539,56 @@ advice. Read it before editing.
     `temperature_c` has no form field — the Karoo's channel is the reference —
     so `save_ride_note` leaves it untouched. LLM-written notes arrive as
     drafts for review, never straight into `RideNote` (review, 2026-10-11).
+
+45. **The API serves what the app shows.** `/api/v1` returns the same stored
+    values a page renders — raw, with unit suffixes, where the page formats
+    them — through the same helpers the states call: `analysis_rides`,
+    `latest_evaluations`, `power_curve_windows`, `route_summary`,
+    `last_ridden_by_route`, `lap_window_s`, `load_ride_tags`,
+    `load_note_summaries`, `excluded_ride_ids`, `group_evaluations`,
+    `metrics.ftp_from_window`. When a page and the API need the same number,
+    extract a helper and switch the state to it; never write the logic twice.
+
+    **No metric exists only in the API.** If the coach needs a new number, it
+    goes into `MetricFields` and onto a page first, then into the API — and
+    `MetricsOut` inherits `MetricFields`, so a new column reaches the API by
+    construction.
+
+    The one on-the-fly computation is the window cutter
+    (`/activities/{id}/window`), and it runs `summarize` over
+    `ChannelWindow.from_stream`. `tests/test_api.py` pins that a lap window
+    reproduces the stored `Lap` row: stream-computed fields exactly,
+    device-copied ones within import's own tolerances. With no FIT message,
+    `summarize` takes riding time from the moving-time axis, never from elapsed
+    time — the fallback once scored a 29-minute stop as riding (TSS 229 instead
+    of 176), and that test is what caught it.
+
+46. **`api/schemas.py` is the MCP contract.** Response models are never table
+    classes (`MetricsOut` inherits the non-table `MetricFields` on purpose).
+    Every numeric key carries a unit suffix or is on the allowlist in
+    `tests/test_api.py`. After any change, regenerate
+    `uv run python -m bike_tracker.api.v1 > mcp_server/openapi_v1.json`. The
+    app's tests fail until you do, and the MCP tests then fail until every new
+    key is named in its tool's docstring.
+
+47. **The API fails closed.** No `BIKE_TRACKER_API_TOKEN` means 503 on every
+    route, and a wrong token means 401. The token lives only in the
+    environment (rule 35). The OpenAPI document and `/docs` are switched off,
+    because they would be served without the token on the GUI's host.
+
+48. **`mcp_server/` never imports `bike_tracker`.** It is a separate image that
+    talks HTTP only, and its tools pass the API's JSON through unchanged.
+    Each tool is registered with its *whole* docstring as description
+    (`read_only_tool`): FastMCP otherwise keeps only the text before the first
+    `Args:`/`Returns:` section, and the Returns section is the contract. Its
+    release tag is `mcp-v*`; the app's is `v*`, and each workflow ignores the
+    other's paths.
+
+49. **Timestamps are naive UTC; people and training weeks live locally.** A
+    page or API field that shows a date, a time or a weekday goes through
+    `utils/local_time` (`format_date`/`format_datetime` do it for you). A
+    7:30 commute was displayed as 05:30 before this rule existed, and a ride
+    after local midnight would fall into the previous training week.
 
 ## Type checking
 

@@ -20,8 +20,9 @@ import numpy as np
 
 from .. import metrics
 from ..metrics import FloatArray
-from ..models import LOAD_SOURCE_HR, LOAD_SOURCE_POWER, MetricFields
+from ..models import LOAD_SOURCE_HR, LOAD_SOURCE_POWER, MetricFields, RideStream
 from ..utils.logging import get_logger
+from . import streams
 from .fit import ParsedRide
 
 log = get_logger(__name__)
@@ -55,6 +56,25 @@ class ChannelWindow:
                 name: metrics.as_float_array(values) for name, values in parsed.channels.items()
             },
         )
+
+    @classmethod
+    def from_stream(cls, stream: RideStream) -> "ChannelWindow":
+        """The stored streams of a ride, for summarizing a window after import.
+
+        The values went through ``float32`` on the way into ``RideStream``, so
+        a summary over them can differ from the import-time one in the last
+        digit; and with no FIT message for an arbitrary window, everything is
+        computed (``summarize(fit=None)``). A channel the ride never recorded
+        is left out, exactly as ``from_parsed`` leaves it out.
+        """
+        channels: dict[str, FloatArray] = {}
+        for name in streams.STREAM_CHANNELS:
+            if name == "time_s":
+                continue
+            values = streams.decode(getattr(stream, name, None))
+            if values.size:
+                channels[name] = values
+        return cls(time_s=streams.decode(stream.time_s), channels=channels)
 
     def slice(self, i0: int, i1: int) -> "ChannelWindow":
         return ChannelWindow(
@@ -114,7 +134,12 @@ def summarize(
     balance = window.get("left_balance_pct")
 
     elapsed_s = _float_or(fit.get("total_elapsed_time"), window.span_s)
-    moving_s = _float_or(fit.get("total_timer_time"), elapsed_s)
+    # Without the device's timer, riding time is the chart's moving-time axis:
+    # pauses squeezed out, which reproduces `total_timer_time` within seconds
+    # (tests/test_fit_roundtrip.py). Falling back to elapsed time instead
+    # would score a 29-minute café stop as riding — +30 % TSS on the morning
+    # reference ride, and a wrong average speed.
+    moving_s = _float_or(fit.get("total_timer_time"), _timer_time(window.time_s, elapsed_s))
 
     has_power = bool(power.size) and bool(np.isfinite(power).any()) and float(np.nanmax(power)) > 0
 
@@ -250,6 +275,12 @@ def cross_check(fit: Mapping[str, Any], computed: MetricFields, window: ChannelW
 # Verified against both reference files. Getting these wrong is invisible while
 # the FIT message supplies the value and only shows up on a window the device
 # never summarized — which is exactly every lap field it does not carry.
+
+
+def _timer_time(time_s: FloatArray, elapsed_s: float) -> float:
+    if time_s.size < 2:
+        return elapsed_s
+    return float(metrics.moving_time_axis(time_s)[-1])
 
 
 def _average_cadence(cadence: FloatArray) -> float | None:

@@ -27,16 +27,27 @@ from .. import metrics
 from ..components.toast import notify_error, notify_success
 from ..components.zone_table import ZoneRow, zone_rows
 from ..ingest.importer import refresh_ftp_dependent
-from ..models import EVAL_BASELINE, EVAL_FTP, EVAL_LTHR, FitnessEval, Ride, analysis_rides
+from ..metrics import EffortWindow
+from ..models import (
+    CURVE_WINDOW_DAYS,
+    EVAL_BASELINE,
+    EVAL_FTP,
+    EVAL_LTHR,
+    FitnessEval,
+    Ride,
+    analysis_rides,
+    latest_evaluations,
+    power_curve_windows,
+)
 from ..utils.formatting import EMPTY, format_date, format_number
 from ..utils.logging import get_logger
 from ..utils.plotly_json import figure_to_dict
 
 log = get_logger(__name__).bind(state="FitnessState")
 
-# Window lengths offered by the power-curve toggle (masterplan §2.5).
-WINDOW_CHOICES = ("30", "90")
-MAX_CURVE_WINDOWS = 4
+# Window lengths offered by the power-curve toggle (masterplan §2.5). The
+# lengths themselves live in models/fitness.py, shared with the REST API.
+WINDOW_CHOICES = tuple(str(days) for days in CURVE_WINDOW_DAYS)
 
 FTP_COLOUR = "#f59e0b"
 BASELINE_COLOUR = "#14b8a6"
@@ -133,17 +144,21 @@ class FitnessState(rx.State):
                 select(FitnessEval).order_by(col(FitnessEval.valid_from))
             ).all()
             rides = session.exec(analysis_rides().order_by(col(Ride.start_time))).all()
-            efforts = [(ride.start_time, _ride_efforts(ride)) for ride in rides]
+            windows = power_curve_windows(
+                rides,
+                window_days=int(self.window_choice),
+                now=datetime.now(UTC).replace(tzinfo=None),
+            )
 
         self._apply_current(list(evaluations))
         self._build_history(list(evaluations))
         self._build_history_figures(list(evaluations))
-        self._build_curves(efforts)
-        log.info("fitness.load", evaluations=len(evaluations), rides=len(efforts))
+        self._build_curves(windows)
+        log.info("fitness.load", evaluations=len(evaluations), rides=len(rides))
 
     def _apply_current(self, evaluations: list[FitnessEval]) -> None:
         """Latest value of each type, and the zone tables that follow from it."""
-        latest = _latest_by_type(evaluations)
+        latest = latest_evaluations(evaluations)
 
         ftp = latest.get(EVAL_FTP)
         lthr = latest.get(EVAL_LTHR)
@@ -195,15 +210,7 @@ class FitnessState(rx.State):
             )
         )
 
-    def _build_curves(self, efforts: list[tuple[datetime, dict[int, float | None]]]) -> None:
-        windows = metrics.best_effort_windows(
-            efforts,
-            window_days=int(self.window_choice),
-            now=datetime.now(UTC).replace(tzinfo=None),
-            max_windows=MAX_CURVE_WINDOWS,
-            durations_s=metrics.POWER_CURVE_WINDOWS_S,
-        )
-
+    def _build_curves(self, windows: list[EffortWindow]) -> None:
         figure = go.Figure()
         for index, window in enumerate(windows):
             if window.is_empty:
@@ -350,22 +357,6 @@ class FitnessState(rx.State):
 # ---------------------------------------------------------------------------
 # View-model helpers
 # ---------------------------------------------------------------------------
-
-
-def _ride_efforts(ride: Ride) -> dict[int, float | None]:
-    """The ride's stored mean-maximal curve, keyed by window length."""
-    return {
-        duration: getattr(ride, f"best_power_{duration}s_w", None)
-        for duration in metrics.POWER_CURVE_WINDOWS_S
-    }
-
-
-def _latest_by_type(evaluations: list[FitnessEval]) -> dict[str, FitnessEval]:
-    """Newest evaluation of each type. Input is ordered by ``valid_from``."""
-    latest: dict[str, FitnessEval] = {}
-    for record in evaluations:
-        latest[record.type] = record
-    return latest
 
 
 def _kind_label(kind: str) -> str:

@@ -78,6 +78,7 @@ from bike_tracker.utils.formatting import (
     format_duration,
     format_speed_kmh,
 )
+from bike_tracker.utils.local_time import to_local
 
 from .conftest import EVENING_FIT
 
@@ -228,7 +229,7 @@ def test_a_ride_card_shows_the_date_without_a_time(imported: ImportedRide) -> No
     It is still on the detail page."""
     ride, _laps, _stream, bikes = imported
     card = _to_card(ride, bikes, {})
-    assert card.date == ride.start_time.strftime("%d %b %Y")
+    assert card.date == to_local(ride.start_time).strftime("%d %b %Y")
     assert ":" not in card.date
 
 
@@ -827,7 +828,7 @@ def test_route_stats_include_the_fastest_pass(db_url: str) -> None:
         stats = _route_stats(route, [first, slower])
 
     assert stats["fastest"] == "44:24", "the faster of the two"
-    assert stats["fastest_on"] == first.start_time.strftime("%d %b %Y")
+    assert stats["fastest_on"] == to_local(first.start_time).strftime("%d %b %Y")
     assert stats["avg_tss"] != EMPTY
     assert stats["best_tss"] != EMPTY
     engine.dispose()
