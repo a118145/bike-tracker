@@ -12,7 +12,9 @@ identity and relations, a lap's position within its ride.
 
 from collections.abc import Iterable
 from datetime import UTC, datetime
+from typing import Any
 
+from pydantic import field_validator
 from reflex.model import ModelRegistry
 from sqlalchemy import JSON, Column, ColumnElement, not_
 from sqlmodel import Field, Session, SQLModel, col, select
@@ -28,10 +30,14 @@ __all__ = [
     "MetricFields",
     "Ride",
     "RideNote",
+    "RideNoteForm",
     "RideStream",
     "analysis_rides",
     "excluded_ride_ids",
     "in_analysis",
+    "load_note_summaries",
+    "note_summary",
+    "save_ride_note",
 ]
 
 
@@ -202,14 +208,20 @@ class RideStream(SQLModel, table=True):
 
 @ModelRegistry.register
 class RideNote(SQLModel, table=True):
-    """Training-diary entry for a ride.
+    """Training-diary entry for a ride, edited from the ride page's note button.
 
-    No UI in milestone 1. It is modelled now because brief §5.5 lists the
-    structured fields as a mandatory data-model requirement — free text alone
-    cannot be correlated — and adding the table later is another migration.
-
+    The structured fields sit beside the free text because brief §5.5 makes
+    them a data-model requirement: free text alone cannot be correlated.
     ``perceived_breathing_limit`` is the only data source on the ventilation
     threshold short of spirometry; over ~30 rides it becomes a pattern.
+
+    **A note exists exactly when its row does** (AGENTS.md rule 44). An
+    emptied note is deleted, never stored blank, so "has a note" is one
+    question with one answer for the ride page, the lists and the MCP. Write
+    only through :func:`save_ride_note`.
+
+    ``temperature_c`` has no form field: the Karoo's own channel is the
+    reference. The column stays for a reading taken by hand.
     """
 
     id: int | None = Field(default=None, primary_key=True)
@@ -222,3 +234,113 @@ class RideNote(SQLModel, table=True):
     text: str | None = Field(default=None)
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+NOTE_TEXT_MAX_LENGTH = 4000
+
+# Upper ends of the structured scales. All three start at 1; "not recorded" is
+# `None`, never 0 (rule 13).
+SLEEP_QUALITY_MAX = 5
+RPE_MAX = 10  # Borg CR10
+BREATHING_LIMIT_MAX = 5
+
+# How much of a long note a tooltip carries. Enough for a paragraph; the
+# dialog holds the rest.
+NOTE_TOOLTIP_MAX_CHARS = 300
+
+
+class RideNoteForm(SQLModel):
+    """Non-table form model for the note dialog (rule 6).
+
+    Text is stripped and blank becomes ``None`` here, once, so whitespace can
+    never make a note that looks empty count as one.
+    """
+
+    text: str | None = Field(default=None, max_length=NOTE_TEXT_MAX_LENGTH)
+    sleep_quality: int | None = Field(default=None, ge=1, le=SLEEP_QUALITY_MAX)
+    rpe: int | None = Field(default=None, ge=1, le=RPE_MAX)
+    perceived_breathing_limit: int | None = Field(default=None, ge=1, le=BREATHING_LIMIT_MAX)
+
+    @field_validator("text", mode="before")
+    @classmethod
+    def _strip_text(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.strip() or None
+        return value
+
+    @property
+    def is_empty(self) -> bool:
+        return (
+            self.text is None
+            and self.sleep_quality is None
+            and self.rpe is None
+            and self.perceived_breathing_limit is None
+        )
+
+
+def save_ride_note(session: Session, ride_id: int, form: RideNoteForm) -> RideNote | None:
+    """Write a ride's note: upsert it, or delete it when the form is empty.
+
+    The one write path for ``RideNote`` (rule 44). Returns the saved row, or
+    ``None`` when the ride now has no note. Commits. ``temperature_c`` is not
+    on the form and is left as it is.
+    """
+    note = session.exec(select(RideNote).where(RideNote.ride_id == ride_id)).first()
+    if form.is_empty:
+        if note is not None:
+            session.delete(note)
+            session.commit()
+        return None
+
+    if note is None:
+        note = RideNote(ride_id=ride_id)
+    note.text = form.text
+    note.sleep_quality = form.sleep_quality
+    note.rpe = form.rpe
+    note.perceived_breathing_limit = form.perceived_breathing_limit
+    session.add(note)
+    session.commit()
+    session.refresh(note)
+    return note
+
+
+def note_summary(note: RideNote, *, full_text: bool = False) -> str:
+    """The note as a tooltip reads it: text, then "Sleep 2/5 · RPE 7 · Breathing 4/5".
+
+    A list card or table cell gets the first line of the text; the ride page,
+    which has room, gets the whole text up to ``NOTE_TOOLTIP_MAX_CHARS``. The
+    two parts are on separate lines, and either may be missing.
+    """
+    lines: list[str] = []
+    text = (note.text or "").strip()
+    if text:
+        if not full_text:
+            text = text.splitlines()[0].strip()
+        elif len(text) > NOTE_TOOLTIP_MAX_CHARS:
+            text = text[:NOTE_TOOLTIP_MAX_CHARS].rstrip() + "…"
+        lines.append(text)
+
+    fields = [
+        f"{label} {value}/{top}"
+        for label, value, top in (
+            ("Sleep", note.sleep_quality, SLEEP_QUALITY_MAX),
+            ("RPE", note.rpe, RPE_MAX),
+            ("Breathing", note.perceived_breathing_limit, BREATHING_LIMIT_MAX),
+        )
+        if value is not None
+    ]
+    if fields:
+        lines.append(" · ".join(fields))
+    return "\n".join(lines)
+
+
+def load_note_summaries(session: Session, ride_ids: Iterable[int] | None = None) -> dict[int, str]:
+    """First-line summaries per ride id, in one query — for a list, not per card.
+
+    A ride without a note is absent from the result. ``ride_ids=None`` means
+    all rides.
+    """
+    query = select(RideNote)
+    if ride_ids is not None:
+        query = query.where(col(RideNote.ride_id).in_(list(ride_ids)))
+    return {note.ride_id: note_summary(note) for note in session.exec(query).all()}

@@ -2,7 +2,7 @@
 
 Layout order, top to bottom, is the spec:
 
-1. heading, back link, bike dropdown, route dropdown
+1. heading, back link, bike dropdown, route dropdown, Fitness menu, note button
 2. tags — pills plus an input that suggests the tags defined in Settings
 3. full-page map
 4. y-t chart — elevation always, extra channels toggled by the stat cards
@@ -19,6 +19,7 @@ from ..components.fitness_dialog import fitness_dialog, fitness_menu
 from ..components.hover_cursor import hover_cursor_bridge
 from ..components.lap_bars import lap_bars
 from ..components.map_view import map_slot
+from ..components.note_dialog import note_button, note_dialog
 from ..components.ride_chart import chart_skeleton, ride_chart
 from ..components.ride_stats import ride_stat_cards
 from ..components.route_dialog import route_dialog
@@ -184,6 +185,7 @@ def _header() -> rx.Component:
                 "Route",
             ),
             fitness_menu(),
+            note_button(),
             spacing="4",
             align="center",
             wrap="wrap",
@@ -228,6 +230,7 @@ def _found() -> rx.Component:
         # the routes list.
         route_dialog(),
         fitness_dialog(),
+        note_dialog(),
         spacing="4",
         align="start",
         width="100%",

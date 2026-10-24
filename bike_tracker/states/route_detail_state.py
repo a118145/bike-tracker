@@ -25,7 +25,7 @@ from ..components.map_view import (
     build_map_figure,
     heat_opacity,
 )
-from ..models import Ride, Route, excluded_ride_ids
+from ..models import Ride, Route, excluded_ride_ids, load_note_summaries
 from ..navigation import routes as route_urls
 from ..utils.formatting import (
     EMPTY,
@@ -64,6 +64,8 @@ class RideRow:
     # summary card (AGENTS.md rule 42).
     excluded: bool = False
     tags: list[TagPill] = field(default_factory=list)
+    # Empty means no note; the table shows an icon with this on hover.
+    note_summary: str = ""
 
 
 class RouteDetailState(rx.State):
@@ -158,6 +160,7 @@ class RouteDetailState(rx.State):
             ride_ids = [ride.id for ride in rides if ride.id is not None]
             excluded = excluded_ride_ids(session, ride_ids)
             tags = load_ride_tags(session, ride_ids)
+            notes = load_note_summaries(session, ride_ids)
 
         # The table lists every ride; everything that summarises the route
         # describes only the rides in analysis.
@@ -165,7 +168,10 @@ class RouteDetailState(rx.State):
         self.title = name
         self.subtitle = _ridden(len(counted), len(rides) - len(counted))
         self.rides = [
-            _to_row(ride, ride.id in excluded, tags.get(ride.id or 0, [])) for ride in rides
+            _to_row(
+                ride, ride.id in excluded, tags.get(ride.id or 0, []), notes.get(ride.id or 0, "")
+            )
+            for ride in rides
         ]
         self.stats = _route_stats(route, counted)
         self._build_map(route_id, counted)
@@ -239,7 +245,12 @@ def _ridden(counted: int, excluded: int) -> str:
     return f"{text} · {excluded} excluded" if excluded else text
 
 
-def _to_row(ride: Ride, excluded: bool = False, tags: list[TagPill] | None = None) -> RideRow:
+def _to_row(
+    ride: Ride,
+    excluded: bool = False,
+    tags: list[TagPill] | None = None,
+    note_summary: str = "",
+) -> RideRow:
     return RideRow(
         id=ride.id or 0,
         date=ride.start_time.strftime("%d %b %Y"),
@@ -254,6 +265,7 @@ def _to_row(ride: Ride, excluded: bool = False, tags: list[TagPill] | None = Non
         detail_href=f"{route_urls.RIDES_ROUTE}/{ride.id}",
         excluded=excluded,
         tags=tags or [],
+        note_summary=note_summary,
     )
 
 

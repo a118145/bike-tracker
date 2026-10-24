@@ -521,6 +521,21 @@ advice. Read it before editing.
     `a7d3e2f91b04` moves those rides onto a seeded "Not training" tag, so the
     set in analysis is identical before and after.
 
+44. **A ride note exists exactly when its `RideNote` row does, and is written
+    only through `models.ride.save_ride_note`.** The form strips the text and
+    turns blank into `None`; an empty note **deletes** the row instead of
+    storing `""`. Badge, tooltip and the MCP then ask one question —
+    "is there a row?" — and cannot disagree about whitespace.
+
+    **The note explains, tags act.** No metric, filter or analysis set reads
+    a note. "HR strap faulty" is described in the note; making the app act on
+    it is a tag effect (rule 43). Deviation reasons (sick child, short sleep,
+    weather) are tags *without* an effect, not a note column.
+
+    `temperature_c` has no form field — the Karoo's channel is the reference —
+    so `save_ride_note` leaves it untouched. LLM-written notes arrive as
+    drafts for review, never straight into `RideNote` (review, 2026-10-11).
+
 ## Type checking
 
 `mypy .` is strict everywhere except `components/` and `pages/`, where several
