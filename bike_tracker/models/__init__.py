@@ -31,10 +31,14 @@ from .ride import (
     Lap,
     Ride,
     RideNote,
+    RideNoteForm,
     RideStream,
     analysis_rides,
     excluded_ride_ids,
     in_analysis,
+    load_note_summaries,
+    note_summary,
+    save_ride_note,
 )
 from .route import Route, RouteForm
 from .tag import (
@@ -74,6 +78,7 @@ __all__ = [
     "MetricFields",
     "Ride",
     "RideNote",
+    "RideNoteForm",
     "RideStream",
     "RideTag",
     "Route",
@@ -84,6 +89,9 @@ __all__ = [
     "excluded_ride_ids",
     "get_account",
     "in_analysis",
+    "load_note_summaries",
     "match_tag",
+    "note_summary",
     "now_utc",
+    "save_ride_note",
 ]

@@ -18,7 +18,7 @@ from sqlmodel import col, select
 
 from ..components.toast import notify_error, notify_info, notify_success, notify_warning
 from ..ingest.sources.file import import_bytes, scan_folder
-from ..models import EVAL_FTP, Bike, FitnessEval, Ride, excluded_ride_ids
+from ..models import EVAL_FTP, Bike, FitnessEval, Ride, excluded_ride_ids, load_note_summaries
 from ..navigation import routes
 from ..utils.formatting import (
     format_distance_km,
@@ -71,6 +71,8 @@ class RideCard:
     excluded: bool = False
     tags: list[TagPill] = field(default_factory=list)
     tag_ids: list[int] = field(default_factory=list)
+    # First line of the note plus its quick fields; empty means no note.
+    note_summary: str = ""
 
 
 class RidesState(rx.State):
@@ -136,6 +138,7 @@ class RidesState(rx.State):
                 select(FitnessEval).order_by(col(FitnessEval.created_at))
             ).all()
             tags = load_ride_tags(session)
+            notes = load_note_summaries(session)
             excluded = excluded_ride_ids(session, (r.id for r in rides if r.id is not None))
             self.filter_tags = [to_pill(tag) for tag in all_tags(session)]
 
@@ -145,7 +148,7 @@ class RidesState(rx.State):
         self.selected_tags = [t for t in self.selected_tags if t in known]
 
         by_ride = group_evaluations(evaluations)
-        self.rides = [_to_card(ride, bike_names, by_ride, tags, excluded) for ride in rides]
+        self.rides = [_to_card(ride, bike_names, by_ride, tags, excluded, notes) for ride in rides]
         log.info("rides.load", count=len(self.rides))
 
     @rx.event
@@ -259,6 +262,7 @@ def _to_card(
     evaluations: dict[int, list[RideEvalBadge]],
     tags: dict[int, list[TagPill]] | None = None,
     excluded: set[int] | None = None,
+    notes: dict[int, str] | None = None,
 ) -> RideCard:
     pills = (tags or {}).get(ride.id or 0, [])
     return RideCard(
@@ -279,6 +283,7 @@ def _to_card(
         excluded=ride.id in (excluded or set()),
         tags=pills,
         tag_ids=[pill.id for pill in pills],
+        note_summary=(notes or {}).get(ride.id or 0, ""),
     )
 
 

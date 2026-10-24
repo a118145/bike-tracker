@@ -9,6 +9,7 @@ import reflex as rx
 
 from ..components.cards import card_grid
 from ..components.map_view import route_preview_svg
+from ..components.note_dialog import note_marker
 from ..components.tags import tag_pill
 from ..navigation import routes
 from ..states.rides_state import RideCard, RideEvalBadge, RidesState
@@ -83,6 +84,7 @@ def _ride_card(ride: RideCard) -> rx.Component:
                         ),
                         rx.foreach(ride.evaluations, _eval_badge),
                         rx.foreach(ride.tags, lambda pill: tag_pill(pill)),
+                        note_marker(ride.note_summary),
                         spacing="2",
                         align="center",
                         wrap="wrap",

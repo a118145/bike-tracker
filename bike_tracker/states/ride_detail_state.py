@@ -61,10 +61,14 @@ from ..models import (
     Lap,
     MetricFields,
     Ride,
+    RideNote,
+    RideNoteForm,
     RideStream,
     RideTag,
     Route,
     match_tag,
+    note_summary,
+    save_ride_note,
 )
 from ..utils.formatting import (
     EMPTY,
@@ -76,6 +80,7 @@ from ..utils.formatting import (
 )
 from ..utils.logging import get_logger
 from ..utils.plotly_json import figure_to_dict
+from ..utils.validation import parse_form
 from .routes_state import NEW_ROUTE_NAME, RoutesState
 from .tags_state import TagPill, all_tags, find_tag_by_name, load_ride_tags
 
@@ -89,6 +94,14 @@ MAP_SIMPLIFY_EPSILON_M = 8.0
 # The dialog is 32em wide; a chart much taller than this crowds the controls
 # above it out of view on a laptop screen.
 EVAL_CHART_HEIGHT_PX = 170
+
+# Radix's select rejects "" as an item value, so "unassigned" travels as a
+# sentinel and is translated back here rather than in the component.
+NONE_OPTION = "__none__"
+
+# Second sentinel on the route dropdown: an action rather than a route.
+# Radix rejects "" as an item value, so both specials travel as sentinels.
+CREATE_ROUTE_OPTION = "__create__"
 
 
 def _thin(points: list[Point]) -> list[Point]:
@@ -175,6 +188,20 @@ class RideDetailState(rx.State):
     # Every tag defined in Settings; only these can be attached.
     tag_options: list[str] = []
     tag_query: str = ""
+
+    # --- note (AGENTS.md rule 44) -------------------------------------------
+    has_note: bool = False
+    # Shown when hovering the note button: the whole text plus quick fields.
+    note_tooltip: str = ""
+    # Dialog defaults. The selects carry NONE_OPTION for "not recorded",
+    # because Radix rejects "" as an item value.
+    note_text: str = ""
+    note_sleep: str = NONE_OPTION
+    note_rpe: str = NONE_OPTION
+    note_breathing: str = NONE_OPTION
+    note_open: bool = False
+    note_form_key: int = 0
+    note_errors: dict[str, str] = {}
 
     # --- fitness evaluation (masterplan §2.4.2) ---------------------------
     # Saved evaluations for this ride, shown as badges on the Power card.
@@ -370,6 +397,7 @@ class RideDetailState(rx.State):
         with rx.session() as badge_session:
             self._load_badges(badge_session, ride_id)
             self._load_tags(badge_session, ride_id)
+            self._load_note(badge_session, ride_id)
         # Last, and with no `yield` between here and the figures above, so the
         # flag and the finished figures reach the client in one delta and the
         # plot's first mount already holds the final figure.
@@ -738,6 +766,85 @@ class RideDetailState(rx.State):
         if excludes and not any(p.excludes for p in self.ride_tags):
             return notify_success("Ride is back in analysis.")
         return None
+
+    # ------------------------------------------------------------------
+    # Note
+    # ------------------------------------------------------------------
+
+    def _load_note(self, session: Any, ride_id: int) -> None:
+        note = session.exec(select(RideNote).where(RideNote.ride_id == ride_id)).first()
+        self._show_note(note)
+
+    def _show_note(self, note: RideNote | None) -> None:
+        """Copy a note into the vars; ``None`` means the ride has none.
+
+        Called while the note's session is still open (rule 24).
+        """
+        self.has_note = note is not None
+        self.note_tooltip = note_summary(note, full_text=True) if note is not None else ""
+        self.note_text = (note.text or "") if note is not None else ""
+        self.note_sleep = _to_select(note.sleep_quality if note is not None else None)
+        self.note_rpe = _to_select(note.rpe if note is not None else None)
+        self.note_breathing = _to_select(
+            note.perceived_breathing_limit if note is not None else None
+        )
+
+    @rx.event
+    def open_note(self):
+        """Open the dialog with the stored note; the key remounts its inputs."""
+        self.note_errors = {}
+        self.note_form_key += 1
+        self.note_open = True
+
+    @rx.event
+    def set_note_open(self, value: bool):
+        """Bound to ``on_open_change`` so Escape and click-outside also close."""
+        self.note_open = value
+        if not value:
+            self.note_errors = {}
+
+    @rx.event
+    def submit_note(self, form_data: dict[str, Any]):
+        """Cast, validate and save the note; an emptied form deletes it.
+
+        On errors the handler returns early, so the dialog stays open with
+        what was typed (rule 6).
+        """
+        raw = {key: _from_select(str(value)) for key, value in form_data.items()}
+        parsed, errors = parse_form(raw, RideNoteForm)
+        if errors or parsed is None:
+            self.note_errors = errors
+            # Keep the input across the remount the error render causes.
+            self.note_text = str(form_data.get("text", ""))
+            self.note_sleep = str(form_data.get("sleep_quality", NONE_OPTION))
+            self.note_rpe = str(form_data.get("rpe", NONE_OPTION))
+            self.note_breathing = str(form_data.get("perceived_breathing_limit", NONE_OPTION))
+            log.info("ride.note.invalid", ride_id=self.ride_id, fields=sorted(errors))
+            return None
+        return self._save_note(parsed)
+
+    @rx.event
+    def clear_note(self):
+        """The dialog's Clear button: an empty note is no note."""
+        return self._save_note(RideNoteForm())
+
+    def _save_note(self, form: RideNoteForm) -> Any:
+        ride_id = int(self.ride_id)
+        had_note = self.has_note
+        with rx.session() as session:
+            if session.get(Ride, ride_id) is None:
+                self.note_open = False
+                return notify_error("That ride no longer exists.")
+            note = save_ride_note(session, ride_id, form)
+            self._show_note(note)
+
+        self.note_errors = {}
+        self.note_open = False
+        if note is None:
+            log.info("ride.note.delete", ride_id=ride_id)
+            return notify_success("Note removed.") if had_note else None
+        log.info("ride.note.save", ride_id=ride_id)
+        return notify_success("Note saved.")
 
     @rx.event
     async def set_route(self, value: str):
@@ -1179,15 +1286,6 @@ class RideDetailState(rx.State):
         )
 
 
-# Radix's select rejects "" as an item value, so "unassigned" travels as a
-# sentinel and is translated back here rather than in the component.
-NONE_OPTION = "__none__"
-
-# Second sentinel on the route dropdown: an action rather than a route.
-# Radix rejects "" as an item value, so both specials travel as sentinels.
-CREATE_ROUTE_OPTION = "__create__"
-
-
 def _first_choice(value: str | list[str], fallback: str) -> str:
     """Single choice out of a segmented control's `str | list[str]` payload."""
     if isinstance(value, list):
@@ -1197,6 +1295,11 @@ def _first_choice(value: str | list[str], fallback: str) -> str:
 
 def _from_select(value: str) -> str:
     return "" if value == NONE_OPTION else value
+
+
+def _to_select(value: int | None) -> str:
+    """An optional number as a select value; the mirror of :func:`_from_select`."""
+    return NONE_OPTION if value is None else str(value)
 
 
 def _stats(m: MetricFields) -> dict[str, str]:

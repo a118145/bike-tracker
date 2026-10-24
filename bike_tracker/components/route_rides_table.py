@@ -14,6 +14,7 @@ renderers, which is more machinery than ten fixed columns justify.
 import reflex as rx
 
 from ..states.route_detail_state import RideRow, RouteDetailState
+from .note_dialog import note_marker
 from .tags import EXCLUDES_TITLE, tag_pill
 
 
@@ -30,6 +31,8 @@ def _row(ride: RideRow) -> rx.Component:
         rx.table.cell(ride.intensity_factor),
         rx.table.cell(ride.tss),
         rx.table.cell(ride.avg_hr),
+        # Says *why* one pass is an outlier, without leaving the table.
+        rx.table.cell(note_marker(ride.note_summary)),
         rx.table.cell(
             rx.hstack(rx.foreach(ride.tags, lambda pill: tag_pill(pill)), spacing="1", wrap="wrap"),
         ),
@@ -53,6 +56,7 @@ def _header() -> rx.Component:
             rx.table.column_header_cell("IF"),
             rx.table.column_header_cell("TSS"),
             rx.table.column_header_cell("Ø HR"),
+            rx.table.column_header_cell(rx.icon("notebook-pen", size=14), title="Note"),
             rx.table.column_header_cell("Tags"),
         ),
     )
